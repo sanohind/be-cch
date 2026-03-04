@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use App\Models\CchRequest;
 use App\Models\Cch;
 use App\Services\WorkflowService;
+use App\Services\AuditLogService;
 
 class Block5RequestController extends Controller
 {
@@ -109,6 +110,12 @@ class Block5RequestController extends Controller
         }
 
         WorkflowService::updateBlockStatus($cch, 5, $isDraft);
+
+        if ($isDraft) {
+            AuditLogService::logDraft($id, 'Block 5', $sphereUser['id']);
+        } else {
+            AuditLogService::logSubmit($id, 'Block 5', $sphereUser['id']);
+        }
 
         return response()->json([
             'success' => true,

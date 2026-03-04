@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use App\Models\CchDfa;
 use App\Models\Cch;
 use App\Services\WorkflowService;
+use App\Services\AuditLogService;
 
 class Block7DfaController extends Controller
 {
@@ -53,6 +54,12 @@ class Block7DfaController extends Controller
         $dfa = CchDfa::updateOrCreate(['cch_id' => $id], $validated);
 
         WorkflowService::updateBlockStatus($cch, 7, $isDraft);
+
+        if ($isDraft) {
+            AuditLogService::logDraft($id, 'Block 7', $sphereUser['id']);
+        } else {
+            AuditLogService::logSubmit($id, 'Block 7', $sphereUser['id']);
+        }
 
         return response()->json([
             'success' => true,

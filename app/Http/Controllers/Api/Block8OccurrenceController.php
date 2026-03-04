@@ -9,6 +9,7 @@ use App\Models\CchOccurrence;
 use App\Models\CchCause;
 use App\Models\Cch;
 use App\Services\WorkflowService;
+use App\Services\AuditLogService;
 
 /**
  * Block 8 - Occurrence Analysis
@@ -122,6 +123,12 @@ class Block8OccurrenceController extends Controller
         $occurrence = CchOccurrence::updateOrCreate(['cch_id' => $id], $validated);
 
         WorkflowService::updateBlockStatus($cch, 8, $isDraft);
+
+        if ($isDraft) {
+            AuditLogService::logDraft($id, 'Block 8', $sphereUser['id']);
+        } else {
+            AuditLogService::logSubmit($id, 'Block 8', $sphereUser['id']);
+        }
 
         return response()->json([
             'success' => true,

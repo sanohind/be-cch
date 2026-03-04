@@ -107,7 +107,7 @@ class Block1BasicController extends Controller
             }
         }
 
-        // Audit Logging
+        // Audit Logging — catat setiap kali save/submit sebagai baris baru
         if ($oldBasic) {
             if ($oldBasic->count_by_customer !== $basic->count_by_customer) {
                 AuditLogService::log($id, 'Block 1', 'UPDATE_COUNT_BY_CUSTOMER', $oldBasic->count_by_customer, $basic->count_by_customer, $sphereUser['id']);
@@ -115,6 +115,12 @@ class Block1BasicController extends Controller
             if ($oldBasic->importance_internal !== $basic->importance_internal) {
                 AuditLogService::log($id, 'Block 1', 'UPDATE_IMPORTANCE_INTERNAL', $oldBasic->importance_internal, $basic->importance_internal, $sphereUser['id']);
             }
+        }
+
+        if ($isDraft) {
+            AuditLogService::logDraft($id, 'Block 1', $sphereUser['id']);
+        } else {
+            AuditLogService::logSubmit($id, 'Block 1', $sphereUser['id']);
         }
 
         // A-Alert trigger if importance_internal === 'A'

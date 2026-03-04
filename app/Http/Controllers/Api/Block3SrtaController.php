@@ -9,6 +9,7 @@ use App\Models\CchSrta;
 use App\Models\CchSrtaScreening;
 use App\Models\Cch;
 use App\Services\WorkflowService;
+use App\Services\AuditLogService;
 
 class Block3SrtaController extends Controller
 {
@@ -52,6 +53,12 @@ class Block3SrtaController extends Controller
         $srta = CchSrta::updateOrCreate(['cch_id' => $id], $validated);
 
         WorkflowService::updateBlockStatus($cch, 3, $isDraft);
+
+        if ($isDraft) {
+            AuditLogService::logDraft($id, 'Block 3', $sphereUser['id']);
+        } else {
+            AuditLogService::logSubmit($id, 'Block 3', $sphereUser['id']);
+        }
 
         return response()->json([
             'success' => true,

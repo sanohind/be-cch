@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use App\Models\CchRa;
 use App\Models\Cch;
 use App\Services\WorkflowService;
+use App\Services\AuditLogService;
 
 class Block6RaController extends Controller
 {
@@ -51,6 +52,12 @@ class Block6RaController extends Controller
         $ra = CchRa::updateOrCreate(['cch_id' => $id], $validated);
 
         WorkflowService::updateBlockStatus($cch, 6, $isDraft);
+
+        if ($isDraft) {
+            AuditLogService::logDraft($id, 'Block 6', $sphereUser['id']);
+        } else {
+            AuditLogService::logSubmit($id, 'Block 6', $sphereUser['id']);
+        }
 
         return response()->json([
             'success' => true,

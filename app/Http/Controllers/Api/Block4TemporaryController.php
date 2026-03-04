@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use App\Models\CchTemporary;
 use App\Models\Cch;
 use App\Services\WorkflowService;
+use App\Services\AuditLogService;
 
 class Block4TemporaryController extends Controller
 {
@@ -51,6 +52,12 @@ class Block4TemporaryController extends Controller
         $temporary = CchTemporary::updateOrCreate(['cch_id' => $id], $validated);
 
         WorkflowService::updateBlockStatus($cch, 4, $isDraft);
+
+        if ($isDraft) {
+            AuditLogService::logDraft($id, 'Block 4', $sphereUser['id']);
+        } else {
+            AuditLogService::logSubmit($id, 'Block 4', $sphereUser['id']);
+        }
 
         return response()->json([
             'success' => true,

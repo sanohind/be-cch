@@ -70,6 +70,12 @@ class Block2PrimaryController extends Controller
             AuditLogService::log($id, 'Block 2', 'UPDATE_DEFECT_QTY', $oldPrimary->defect_qty, $primary->defect_qty, $sphereUser['id']);
         }
 
+        if ($isDraft) {
+            AuditLogService::logDraft($id, 'Block 2', $sphereUser['id']);
+        } else {
+            AuditLogService::logSubmit($id, 'Block 2', $sphereUser['id']);
+        }
+
         WorkflowService::updateBlockStatus($cch, 2, $isDraft);
 
         return response()->json([

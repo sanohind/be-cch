@@ -99,6 +99,12 @@ class Block10ClosingController extends Controller
 
         WorkflowService::updateBlockStatus($cch, 10, $isDraft);
 
+        if ($isDraft) {
+            AuditLogService::logDraft($id, 'Block 10', $sphereUser['id']);
+        } else {
+            AuditLogService::logSubmit($id, 'Block 10', $sphereUser['id']);
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Block 10 updated successfully',

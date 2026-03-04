@@ -9,6 +9,7 @@ use App\Models\CchOutflow;
 use App\Models\CchCause;
 use App\Models\Cch;
 use App\Services\WorkflowService;
+use App\Services\AuditLogService;
 
 /**
  * Block 9 - Outflow Analysis
@@ -112,6 +113,12 @@ class Block9OutflowController extends Controller
         $outflow = CchOutflow::updateOrCreate(['cch_id' => $id], $validated);
 
         WorkflowService::updateBlockStatus($cch, 9, $isDraft);
+
+        if ($isDraft) {
+            AuditLogService::logDraft($id, 'Block 9', $sphereUser['id']);
+        } else {
+            AuditLogService::logSubmit($id, 'Block 9', $sphereUser['id']);
+        }
 
         return response()->json([
             'success' => true,
