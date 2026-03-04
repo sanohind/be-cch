@@ -4,22 +4,17 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
+/**
+ * NOTE: CCH menggunakan SSO via Sphere — tidak butuh tabel 'users' standar Laravel.
+ * Auth user dikelola di tabel 'cch_users' (SSO bridge).
+ * Migration ini hanya membuat tabel sessions & password_reset_tokens (dibutuhkan framework).
+ */
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
-        Schema::create('users', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->string('email')->unique();
-            $table->timestamp('email_verified_at')->nullable();
-            $table->string('password');
-            $table->rememberToken();
-            $table->timestamps();
-        });
+        // CCH tidak menggunakan tabel 'users' standar — auth via Sphere SSO
+        // User data ada di tabel 'cch_users'
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {
             $table->string('email')->primary();
@@ -37,12 +32,8 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
-        Schema::dropIfExists('users');
         Schema::dropIfExists('password_reset_tokens');
         Schema::dropIfExists('sessions');
     }
