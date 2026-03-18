@@ -20,16 +20,3 @@ class CchDfa extends Model
     public function cch(): BelongsTo { return $this->belongsTo(Cch::class, 'cch_id', 'cch_id'); }
     public function attachments(): HasMany { return $this->hasMany(CchDfaAttachment::class, 'cch_id', 'cch_id'); }
 }
-
-class CchDfaAttachment extends Model
-{
-    protected $table = 't_cch_dfa_attachments';
-    protected $primaryKey = 'attachment_id';
-    public $timestamps = false;
-
-    protected $fillable = ['cch_id', 'attachment_type', 'file_name', 'file_path', 'file_size_kb', 'uploaded_by', 'uploaded_at'];
-    protected $casts = ['uploaded_at' => 'datetime'];
-
-    public function cch(): BelongsTo { return $this->belongsTo(Cch::class, 'cch_id', 'cch_id'); }
-    public function uploadedBy(): BelongsTo { return $this->belongsTo(CchUser::class, 'uploaded_by', 'id'); }
-}

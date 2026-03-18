@@ -10,7 +10,7 @@ class CchRequest extends Model
     protected $table = 't_cch_request';
     protected $primaryKey = 'request_id';
 
-    protected $fillable = ['cch_id', 'department', 'due_date', 'description', 'status'];
+    protected $fillable = ['cch_id', 'department', 'division_id', 'due_date', 'description', 'status'];
     protected $casts = ['due_date' => 'date'];
 
     public function cch(): BelongsTo { return $this->belongsTo(Cch::class, 'cch_id', 'cch_id'); }

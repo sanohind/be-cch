@@ -18,6 +18,8 @@ class AttachmentController extends Controller
         'temporary' => \App\Models\CchTemporaryAttachment::class,
         'ra' => \App\Models\CchRaAttachment::class,
         'dfa' => \App\Models\CchDfaAttachment::class,
+        'occurrence' => \App\Models\CchOccurrenceAttachment::class,
+        'outflow' => \App\Models\CchOutflowAttachment::class,
         'closing' => \App\Models\CchClosingAttachment::class,
     ];
 

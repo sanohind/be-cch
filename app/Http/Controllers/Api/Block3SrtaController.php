@@ -8,8 +8,10 @@ use Illuminate\Http\JsonResponse;
 use App\Models\CchSrta;
 use App\Models\CchSrtaScreening;
 use App\Models\Cch;
-use App\Services\WorkflowService;
 use App\Services\AuditLogService;
+use App\Models\CchSrtaAttachment;
+use Illuminate\Support\Facades\Storage;
+use App\Services\WorkflowService;
 
 class Block3SrtaController extends Controller
 {
@@ -44,15 +46,67 @@ class Block3SrtaController extends Controller
         }
 
         $rules = [
-            'author_comment' => 'nullable|string'
+            'author_comment' => 'nullable|string',
+            'treatment' => 'nullable|string',
+            'screenings_json' => 'nullable|string',
+            'attachment_files.*' => 'nullable|file|mimes:pdf,jpg,jpeg,png,xlsx,docx|max:10240'
         ];
 
-        $rules = WorkflowService::applyDraftRules($rules, $isDraft);
+        $rules = \App\Services\WorkflowService::applyDraftRules($rules, $isDraft);
         $validated = $request->validate($rules);
 
-        $srta = CchSrta::updateOrCreate(['cch_id' => $id], $validated);
+        $srtaData = collect($validated)->except(['screenings_json', 'attachment_files'])->toArray();
+        $srta = CchSrta::updateOrCreate(['cch_id' => $id], $srtaData);
 
-        WorkflowService::updateBlockStatus($cch, 3, $isDraft);
+        // Process Screenings Sync
+        if ($request->has('screenings_json')) {
+            $screenings = json_decode($request->input('screenings_json'), true) ?? [];
+            
+            // Delete old screenings that are not in the new active list (where ID is present but not passed, etc)
+            // Simpler: Just delete ALL current screenings for this CCH, then recreate, OR sync manually.
+            $activeIds = collect($screenings)->pluck('id')->filter()->toArray();
+            CchSrtaScreening::where('cch_id', $id)->whereNotIn('screening_id', $activeIds)->delete();
+
+            foreach ($screenings as $row) {
+                // validate basic
+                if (!isset($row['location']) || !isset($row['action_taken'])) continue;
+                
+                $sd = [
+                    'cch_id' => $id,
+                    'location' => $row['location'],
+                    'ng_qty' => $row['ng_qty'] ?? 0,
+                    'ok_qty' => $row['ok_qty'] ?? 0,
+                    'action_taken' => $row['action_taken'],
+                    'action_result' => $row['action_result'] ?? null
+                ];
+
+                if (!empty($row['id'])) {
+                    CchSrtaScreening::where('cch_id', $id)->where('screening_id', $row['id'])->update($sd);
+                } else {
+                    CchSrtaScreening::create($sd);
+                }
+            }
+        }
+
+        // Processing Attachments
+        if ($request->hasFile('attachment_files')) {
+            foreach ($request->file('attachment_files') as $file) {
+                $originalName = $file->getClientOriginalName();
+                $fileName = date('Ymd_His') . '_' . preg_replace('/[^A-Za-z0-9\-\_\.]/', '_', $originalName);
+                $path = "cch/{$cch->cch_id}/srta";
+                $storedPath = $file->storeAs($path, $fileName, 'public');
+
+                CchSrtaAttachment::create([
+                    'cch_id' => $cch->cch_id,
+                    'file_name' => $originalName,
+                    'file_path' => $storedPath,
+                    'file_size_kb' => round($file->getSize() / 1024, 2),
+                    'uploaded_by' => $sphereUser['id']
+                ]);
+            }
+        }
+
+        \App\Services\WorkflowService::updateBlockStatus($cch, 3, $isDraft);
 
         if ($isDraft) {
             AuditLogService::logDraft($id, 'Block 3', $sphereUser['id']);
@@ -63,7 +117,7 @@ class Block3SrtaController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Block 3 updated successfully',
-            'data'    => $srta
+            'data'    => $srta->load('screening', 'attachments')
         ]);
     }
 

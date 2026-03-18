@@ -11,6 +11,7 @@ use App\Models\CchBasicAttachment;
 use App\Models\CchUser;
 use App\Services\WorkflowService;
 use App\Services\AAlertService;
+use App\Services\CchNotificationService;
 
 class CchController extends Controller
 {
@@ -36,6 +37,8 @@ class CchController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $sphereUser = $request->attributes->get('sphere_user');
+        
         $query = Cch::query()
             ->select([
                 't_cch.cch_id', 't_cch.cch_number', 't_cch.status',
@@ -63,6 +66,63 @@ class CchController extends Controller
             ]);
 
         // ── Filters ──────────────────────────────────────────────────────────
+
+        // Draft hanya bisa dilihat oleh pembuat
+        $cchUserId = $sphereUser['id'] ?? null;
+        $roleLevel = (int) ($sphereUser['role_level'] ?? 99);
+
+        $query->where(function ($q) use ($cchUserId) {
+            $q->where('t_cch.status', '!=', 'draft')
+              ->orWhere('t_cch.input_by', $cchUserId);
+        });
+
+        /**
+         * ── Visibility per role ─────────────────────────────────────────────
+         *
+         * Level 1 (Superadmin)  : lihat semua
+         * Level 2 (Admin)       : CCH yang dia buat (input_by) +
+         *                         CCH yang division-nya ada di Block 5 request
+         * Level 4 (Presdir/GM)  : hanya CCH rank A (importance_internal = 'A')
+         * Level 5 (Manager)     : hanya CCH yang t_cch.division_id = division user
+         * Lainnya               : hanya CCH yang dia buat
+         */
+        if ($roleLevel === 1) {
+            // Superadmin: lihat semua
+
+        } elseif ($roleLevel === 2) {
+            // Admin: CCH yang dibuat sendiri ATAU divisinya ada di Block 5 Request
+            $userDivisionId = CchUser::select('division_id')->find($cchUserId)?->division_id;
+
+            $query->where(function ($q) use ($cchUserId, $userDivisionId) {
+                $q->where('t_cch.input_by', $cchUserId);
+
+                if ($userDivisionId) {
+                    $q->orWhereHas('requests', function ($r) use ($userDivisionId) {
+                        $r->where('division_id', $userDivisionId);
+                    });
+                }
+            });
+
+        } elseif ($roleLevel === 4) {
+            // Presdir/GM: hanya CCH rank A
+            $query->whereHas('basic', function ($q) {
+                $q->where('importance_internal', 'A');
+            });
+
+        } elseif ($roleLevel === 5) {
+            // Manager: hanya CCH yang division_id di Block 1 sesuai divisinya
+            $userDivisionId = CchUser::select('division_id')->find($cchUserId)?->division_id;
+
+            if ($userDivisionId) {
+                $query->where('t_cch.division_id', $userDivisionId);
+            } else {
+                $query->whereRaw('1 = 0');
+            }
+
+        } else {
+            // Role lain: hanya CCH yang dia buat
+            $query->where('t_cch.input_by', $cchUserId);
+        }
 
         // Status tiket
         if ($request->filled('status')) {
@@ -173,11 +233,24 @@ class CchController extends Controller
         $isDraft = $request->boolean('is_draft', false);
         $sphereUser = $request->attributes->get('sphere_user');
 
+        // Hanya Admin QC (role_level=2 DAN sphere_department_id=7) yang boleh membuat CCH
+        $roleLevel      = (int)($sphereUser['role_level'] ?? 99);
+        $departmentId   = (int)($sphereUser['department_id'] ?? 0);
+        $qcDepartmentId = 7;
+
+        if ($roleLevel !== 1 && !($roleLevel === 2 && $departmentId === $qcDepartmentId)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya Admin departemen QC yang dapat membuat CCH baru.',
+            ], 403);
+        }
+
         $rules = [
             'subject' => 'required|string|max:200',
             'division_id' => 'required|exists:sphere.departments,id',
             'report_category' => 'required|in:Customer,Market,Internal',
             'customer_id' => 'nullable|string|exists:erp.business_partner,bp_code',
+            'plant_of_customer' => 'nullable|integer|exists:m_plants,plant_id',
             'defect_class' => 'required|in:Quality trouble,Delivery trouble',
             'line_stop' => 'required|in:YES,NO',
             'count_by_customer' => 'required|in:YES,NO_Responsibility,NO_No_Responsibility,Undetermined,Not_Applicable',
@@ -195,12 +268,20 @@ class CchController extends Controller
         if (!$isDraft && isset($validated['report_category'])) {
             // Business Rule: Delivery trouble disabled for Market category
             if ($validated['report_category'] === 'Market' && ($validated['defect_class'] ?? '') === 'Delivery trouble') {
-                return response()->json(['success' => false, 'message' => 'Delivery trouble not allowed for Market category'], 422);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Delivery trouble not allowed for Market category',
+                    'errors' => ['defect_class' => ['Delivery trouble tidak diperbolehkan untuk kategori Market.']],
+                ], 422);
             }
-            
+
             // Business Rule: rank class required if internal is A or B
             if (in_array($validated['importance_internal'] ?? '', ['A', 'B']) && empty($validated['importance_internal_class'])) {
-                return response()->json(['success' => false, 'message' => 'Importance internal class is required for rank A or B'], 422);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Importance internal class is required for rank A or B',
+                    'errors' => ['importance_internal_class' => ['Importance internal class wajib diisi untuk rank A atau B.']],
+                ], 422);
             }
         }
 
@@ -247,7 +328,15 @@ class CchController extends Controller
             AAlertService::trigger($cch->cch_id, $cch->cch_number, $basic->subject);
         }
 
-        WorkflowService::updateBlockStatus($cch, 1, $isDraft);
+        WorkflowService::updateBlockStatus($cch, 1, $isDraft, (int)($cchUser->id ?? 0) ?: null);
+
+        // Send email notification when block 1 is fully submitted (not draft)
+        if (!$isDraft) {
+            CchNotificationService::notifyCchCreated(
+                $cch,
+                $cchUser->full_name ?? $cchUser->username ?? 'Admin'
+            );
+        }
 
         return response()->json([
             'success' => true,
@@ -265,7 +354,7 @@ class CchController extends Controller
             'inputBy', 'division',
             'basic.customer', 'basicAttachments',
             'primary.failureMode', 'primary.productCategory', 'primary.productFamily', 'primaryPhotos',
-            'srta.screening', 'srta.attachments', 'srtaAttachments', // srta attachments
+            'srta.screening', 'srta.attachments', 'srtaAttachments',
             'temporary', 'temporaryAttachments',
             'requests',
             'ra', 'raAttachments',
@@ -283,6 +372,48 @@ class CchController extends Controller
         }
 
         $sphereUser = $request->attributes->get('sphere_user') ?? [];
+        $cchUserId  = $sphereUser['id'] ?? null;
+        $roleLevel  = (int) ($sphereUser['role_level'] ?? 99);
+
+        // ── Draft guard: hanya creator yang boleh lihat CCH draft ──────────
+        if ($cch->status === 'draft') {
+            if ($cchUserId !== $cch->input_by && $roleLevel !== 1) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Forbidden. This CCH is in draft status and can only be accessed by its creator.'
+                ], 403);
+            }
+        }
+
+        // ── Visibility guard (same rules as index) ─────────────────────────
+        if ($roleLevel !== 1 && $roleLevel !== 2) {
+            $cchUser        = CchUser::select('id', 'division_id')->find($cchUserId);
+            $userDivisionId = (int) ($cchUser?->division_id ?? 0);
+            $importance     = $cch->basic?->importance_internal ?? null;
+            $cchDivisionId  = (int) ($cch->division_id ?? 0);
+
+            $allowed = false;
+
+            if ($roleLevel === 4) {
+                // Presdir/GM: hanya rank A
+                $allowed = ($importance === 'A');
+
+            } elseif ($roleLevel === 5) {
+                // Manager: division_id Block 1 harus cocok
+                $allowed = $userDivisionId && ($cchDivisionId === $userDivisionId);
+
+            } else {
+                // Lainnya: hanya creator
+                $allowed = ($cchUserId === $cch->input_by);
+            }
+
+            if (!$allowed) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses untuk melihat CCH ini.'
+                ], 403);
+            }
+        }
 
         if ($cch->b1_status === 'draft' && !\App\Services\WorkflowService::checkCanViewDraft($cch, $sphereUser, 1)) {
             $cch->setRelation('basic', null);

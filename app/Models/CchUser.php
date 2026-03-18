@@ -63,11 +63,14 @@ class CchUser extends Model
 
     /**
      * Create or update a CCH user from Sphere JWT claims.
+     * Resolves division_id from Sphere department (id/code/name) so PIC department
+     * can see CCHs that requested their division in Block 5.
      */
     public static function syncFromSphere(array $sphereUser): self
     {
+        $sphereId = $sphereUser['sphere_id'] ?? $sphereUser['id'];
         $user = static::updateOrCreate(
-            ['sphere_user_id' => $sphereUser['id']],
+            ['sphere_user_id' => $sphereId],
             [
                 'username'               => $sphereUser['username'],
                 'full_name'              => $sphereUser['name'] ?? $sphereUser['username'],
@@ -81,7 +84,56 @@ class CchUser extends Model
             ]
         );
 
+        $divisionId = static::resolveDivisionIdFromSphere($sphereUser);
+        if ($divisionId !== null && $user->division_id != $divisionId) {
+            $user->update(['division_id' => $divisionId]);
+            $user->refresh();
+        }
+
         return $user;
+    }
+
+    /**
+     * Resolve sphere.departments id from Sphere JWT department info.
+     * Used so cch_users.division_id is set and list CCH filter (PIC department) works.
+     */
+    protected static function resolveDivisionIdFromSphere(array $sphereUser): ?int
+    {
+        $departmentId = $sphereUser['department_id'] ?? null;
+        $departmentCode = $sphereUser['department_code'] ?? null;
+        $departmentName = $sphereUser['department_name'] ?? null;
+
+        if ($departmentId && is_numeric($departmentId)) {
+            $div = Division::query()->find((int) $departmentId);
+            if ($div) {
+                return (int) $div->id;
+            }
+        }
+
+        if (!empty($departmentCode) && is_string($departmentCode)) {
+            $div = Division::query()->where('code', $departmentCode)->first();
+            if ($div) {
+                return (int) $div->id;
+            }
+        }
+
+        if (!empty($departmentName) && is_string($departmentName)) {
+            $name = trim($departmentName);
+            $div = Division::query()
+                ->whereRaw('LOWER(TRIM(name)) = ?', [strtolower($name)])
+                ->first();
+            if ($div) {
+                return (int) $div->id;
+            }
+            $div = Division::query()
+                ->where('name', 'like', '%' . $name . '%')
+                ->first();
+            if ($div) {
+                return (int) $div->id;
+            }
+        }
+
+        return null;
     }
 
     public function hasRole(string ...$roles): bool

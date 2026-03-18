@@ -11,7 +11,7 @@ class CchSrta extends Model
     protected $table = 't_cch_srta';
     protected $primaryKey = 'srta_id';
 
-    protected $fillable = ['cch_id', 'author_comment'];
+    protected $fillable = ['cch_id', 'treatment', 'author_comment'];
 
     public function cch(): BelongsTo { return $this->belongsTo(Cch::class, 'cch_id', 'cch_id'); }
     public function screening(): HasMany { return $this->hasMany(CchSrtaScreening::class, 'cch_id', 'cch_id'); }

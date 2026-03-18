@@ -42,7 +42,7 @@ class VerifySphereToken
             $decoded = JWT::decode($token, new Key($jwtSecret, 'HS256'));
 
             // Attach full sphere user info to request
-            $request->attributes->set('sphere_user', [
+            $sphereArr = [
                 'id'              => $decoded->sub ?? $decoded->id ?? null,
                 'email'           => $decoded->email ?? null,
                 'username'        => $decoded->username ?? null,
@@ -52,7 +52,15 @@ class VerifySphereToken
                 'department_id'   => $decoded->department_id ?? null,
                 'department_code' => $decoded->department_code ?? null,
                 'department_name' => $decoded->department_name ?? null,
-            ]);
+            ];
+
+            // Auto-sync user to CCH database, then override ID
+            $cchUser = \App\Models\CchUser::syncFromSphere($sphereArr);
+            $sphereArr['sphere_id'] = $sphereArr['id']; // Preserve Sphere ID
+            $sphereArr['id'] = $cchUser->id; // Override to strictly enforce CchUser local ID in all Controllers!
+
+            $request->attributes->set('sphere_user', $sphereArr);
+            $request->attributes->set('cch_user', $cchUser);
 
             return $next($request);
 

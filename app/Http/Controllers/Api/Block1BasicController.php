@@ -27,7 +27,7 @@ class Block1BasicController extends Controller
             }
         }
 
-        $basic = CchBasic::with(['customer'])->where('cch_id', $id)->first();
+        $basic = CchBasic::with(['customer', 'plant'])->where('cch_id', $id)->first();
         if (!$basic) {
             return response()->json(['success' => false, 'message' => 'Block 1 not found'], 404);
         }
@@ -55,6 +55,7 @@ class Block1BasicController extends Controller
             'division_id' => 'required|exists:sphere.departments,id',
             'report_category' => 'required|in:Customer,Market,Internal',
             'customer_id' => 'nullable|string|exists:erp.business_partner,bp_code',
+            'plant_of_customer' => 'nullable|integer|exists:m_plants,plant_id',
             'defect_class' => 'required|in:Quality trouble,Delivery trouble',
             'line_stop' => 'required|in:YES,NO',
             'count_by_customer' => 'required|in:YES,NO_Responsibility,NO_No_Responsibility,Undetermined,Not_Applicable',
@@ -74,12 +75,20 @@ class Block1BasicController extends Controller
         if (!$isDraft && isset($validated['report_category'])) {
             // Business Rule: Delivery trouble disabled for Market category
             if ($validated['report_category'] === 'Market' && ($validated['defect_class'] ?? '') === 'Delivery trouble') {
-                return response()->json(['success' => false, 'message' => 'Delivery trouble not allowed for Market category'], 422);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Delivery trouble not allowed for Market category',
+                    'errors' => ['defect_class' => ['Delivery trouble tidak diperbolehkan untuk kategori Market.']],
+                ], 422);
             }
-            
+
             // Business Rule: rank class required if internal is A or B
             if (in_array($validated['importance_internal'] ?? '', ['A', 'B']) && empty($validated['importance_internal_class'])) {
-                return response()->json(['success' => false, 'message' => 'Importance internal class is required for rank A or B'], 422);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Importance internal class is required for rank A or B',
+                    'errors' => ['importance_internal_class' => ['Importance internal class wajib diisi untuk rank A atau B.']],
+                ], 422);
             }
         }
 
@@ -93,12 +102,12 @@ class Block1BasicController extends Controller
             foreach ($request->file('attachments') as $file) {
                 $originalName = $file->getClientOriginalName();
                 $fileName = date('Ymd_His') . '_' . preg_replace('/[^A-Za-z0-9\-\_\.]/', '_', $originalName);
-                $path = "cch/{$cch->id}/basic";
+                $path = "cch/{$cch->cch_id}/basic";
                 
                 $storedPath = $file->storeAs($path, $fileName, 'public');
 
                 CchBasicAttachment::create([
-                    'cch_id' => $cch->id,
+                    'cch_id' => $cch->cch_id,
                     'file_name' => $originalName,
                     'file_path' => $storedPath,
                     'file_size_kb' => round($file->getSize() / 1024, 2),
@@ -128,7 +137,7 @@ class Block1BasicController extends Controller
             AAlertService::trigger($id, $cch->cch_number, $basic->subject);
         }
 
-        WorkflowService::updateBlockStatus($cch, 1, $isDraft);
+        WorkflowService::updateBlockStatus($cch, 1, $isDraft, (int)($sphereUser['id'] ?? 0) ?: null);
 
         return response()->json([
             'success' => true,

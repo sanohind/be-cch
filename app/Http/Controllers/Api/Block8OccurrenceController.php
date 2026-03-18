@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
-use App\Models\CchOccurrence;
 use App\Models\CchCause;
 use App\Models\Cch;
+use App\Models\CchOccurrencePic;
+use App\Models\CchRequest;
+use App\Models\CchUser;
 use App\Services\WorkflowService;
 use App\Services\AuditLogService;
 
@@ -32,29 +34,105 @@ use App\Services\AuditLogService;
  */
 class Block8OccurrenceController extends Controller
 {
+    private function getOwnerId(Cch $cch): ?int
+    {
+        return (int)($cch->admin_in_charge ?: $cch->input_by) ?: null;
+    }
+
+    private function isAdmin(int $roleLevel): bool
+    {
+        return in_array($roleLevel, [1, 2], true);
+    }
+
+    private function isManagerOrPresdirGm(int $roleLevel): bool
+    {
+        return in_array($roleLevel, [1, 4, 5], true);
+    }
+
+    private function isEligiblePic(int $cchId, int $userId): bool
+    {
+        // Only admin-level users (role_level 1 or 2) whose division is in Block 5 can be PIC
+        $user = CchUser::select('id', 'division_id', 'sphere_role_level')->find($userId);
+        if (!$user || !$user->division_id) return false;
+        if (!in_array((int)$user->sphere_role_level, [1, 2], true)) return false;
+
+        return CchRequest::where('cch_id', $cchId)
+            ->whereNotNull('division_id')
+            ->where('division_id', $user->division_id)
+            ->exists();
+    }
+
+    private function resolvePicUserId(Cch $cch, array $sphereUser): array
+    {
+        $roleLevel = (int)($sphereUser['role_level'] ?? 99);
+        $userId = (int)($sphereUser['id'] ?? 0);
+        $ownerId = $this->getOwnerId($cch);
+
+        $isOwnerAdmin = $this->isAdmin($roleLevel) && $ownerId !== null && $ownerId === $userId;
+        $isManager = $this->isManagerOrPresdirGm($roleLevel);
+
+        // Admin owner & manager can view/switch to any PIC via ?pic_user_id=N
+        if ($isOwnerAdmin || $isManager) {
+            $requested = (int)request()->query('pic_user_id', 0);
+            return [$requested ?: $userId, true];
+        }
+
+        // PIC (any role level) only sees their own entry; canViewAll=false
+        return [$userId, false];
+    }
+
     public function show($id): JsonResponse
     {
         $cch = \App\Models\Cch::find($id);
-        if ($cch) {
-            $sphereUser = request()->attributes->get('sphere_user');
-            if ($cch->b8_status === 'draft' && !WorkflowService::checkCanViewDraft($cch, $sphereUser, 8)) {
-                return response()->json(['success' => false, 'message' => 'Status tiket masih draft, hanya dapat dilihat oleh user yang mengisi.'], 403);
-            }
+        if (!$cch) return response()->json(['success' => false, 'message' => 'CCH not found'], 404);
+
+        $sphereUser = request()->attributes->get('sphere_user') ?? [];
+        $roleLevel = (int)($sphereUser['role_level'] ?? 99);
+        $userId = (int)($sphereUser['id'] ?? 0);
+        $ownerId = $this->getOwnerId($cch);
+
+        $isOwnerAdmin = $this->isAdmin($roleLevel) && $ownerId !== null && $ownerId === $userId;
+        $isManager = $this->isManagerOrPresdirGm($roleLevel);
+        // PIC: any role level whose division is listed in Block 5 requests
+        $isPic = !$isOwnerAdmin && $this->isEligiblePic((int)$id, $userId);
+
+        if (!$isOwnerAdmin && !$isManager && !$isPic) {
+            return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
         }
 
-        $occurrence = CchOccurrence::with([
-            'responsiblePlant',         // Plant lokal (Own_plant / Sanoh_group)
-            'process',                  // Process (Own_plant / Sanoh_group)
-            'supplier',                 // BusinessPartner dari ERP (Supplier)
-            'supplierProcess',          // Process milik supplier
-            'causes.cause',         // masterCause dari m_causes
-        ])->where('cch_id', $id)->first();
+        [$picUserId, $canViewAll] = $this->resolvePicUserId($cch, $sphereUser);
 
-        if (!$occurrence) {
-            return response()->json(['success' => false, 'message' => 'Block 8 not found'], 404);
-        }
+        // Admin owner & manager see all headers; PIC sees all headers as well
+        $headers = CchOccurrencePic::with(['picUser:id,full_name,username,division_id'])
+            ->where('cch_id', $id)
+            ->orderByDesc('updated_at')
+            ->get();
 
-        return response()->json(['success' => true, 'data' => $occurrence]);
+        $record = CchOccurrencePic::with(['picUser:id,full_name,username,division_id', 'process', 'supplier', 'supplierProcess'])
+            ->where('cch_id', $id)
+            ->where('pic_user_id', $picUserId)
+            ->first();
+
+        $causes = CchCause::with(['cause'])
+            ->where('cch_id', $id)
+            ->where('cause_type', 'occurrence')
+            ->where('pic_user_id', $picUserId)
+            ->orderBy('sort_order')
+            ->get();
+
+        $attachments = \App\Models\CchOccurrenceAttachment::where('cch_id', $id)->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'headers' => $headers,
+                'current' => $record,
+                'causes'  => $causes,
+                'attachments' => $attachments,
+                'pic_user_id' => $picUserId,
+                'can_view_all' => $canViewAll,
+            ],
+        ]);
     }
 
     public function update(Request $request, $id): JsonResponse
@@ -64,22 +142,32 @@ class Block8OccurrenceController extends Controller
 
         $isDraft = $request->boolean('is_draft', false);
         $sphereUser = $request->attributes->get('sphere_user');
+        $roleLevel = (int)($sphereUser['role_level'] ?? 99);
+        $userId = (int)($sphereUser['id'] ?? 0);
+        $ownerId = $this->getOwnerId($cch);
 
-        if ($error = WorkflowService::checkBlockAccess($cch, $sphereUser, 8)) {
-            return response()->json($error, 403);
+        $isOwnerAdmin = $this->isAdmin($roleLevel) && $ownerId !== null && $ownerId === $userId;
+        $isManager = $this->isManagerOrPresdirGm($roleLevel);
+        $isPic = !$isOwnerAdmin && $this->isEligiblePic((int)$id, $userId);
+
+        if ($isManager) {
+            return response()->json(['success' => false, 'message' => 'Role anda tidak memiliki akses untuk mengisi Block 8.'], 403);
+        }
+        if (!$isOwnerAdmin && !$isPic) {
+            return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
         }
 
         $defectMadeBy = $request->input('defect_made_by');
+        $picUserId = $isOwnerAdmin ? (int)$request->input('pic_user_id', $userId) : $userId;
 
         // ── Base rules (selalu ada) ─────────────────────────────────────────
         $rules = [
             'defect_made_by' => 'required|in:Own_plant,Sanoh_group,Supplier,Unknown',
-            'author_comment' => 'nullable|string',
         ];
 
         // ── Own_plant & Sanoh_group: Responsible Plant + Process ────────────
         if (in_array($defectMadeBy, ['Own_plant', 'Sanoh_group'])) {
-            $rules['responsible_plant_id'] = 'required|exists:m_plants,plant_id';
+            $rules['division_id']          = 'required|exists:sphere.departments,id';
             $rules['responsible_office']   = 'required|string|max:200';
             $rules['process_id']           = 'required|exists:m_processes,process_id';
             $rules['process_comment']      = 'nullable|string';
@@ -104,15 +192,13 @@ class Block8OccurrenceController extends Controller
             $validated['supplier_process_id']      = null;
             $validated['supplier_process_comment'] = null;
         } elseif ($defectMadeBy === 'Supplier') {
-            $validated['responsible_plant_id']   = null;
+            $validated['division_id']            = null;
             $validated['responsible_office']     = null;
-            $validated['responsible_plant_detail'] = null;
             $validated['process_id']             = null;
             $validated['process_comment']        = null;
         } else { // Unknown
-            $validated['responsible_plant_id']     = null;
+            $validated['division_id']              = null;
             $validated['responsible_office']       = null;
-            $validated['responsible_plant_detail'] = null;
             $validated['process_id']               = null;
             $validated['process_comment']          = null;
             $validated['supplier_id']              = null;
@@ -120,9 +206,15 @@ class Block8OccurrenceController extends Controller
             $validated['supplier_process_comment'] = null;
         }
 
-        $occurrence = CchOccurrence::updateOrCreate(['cch_id' => $id], $validated);
+        $occurrence = CchOccurrencePic::updateOrCreate(
+            ['cch_id' => $id, 'pic_user_id' => $picUserId],
+            array_merge($validated, ['pic_user_id' => $picUserId])
+        );
 
-        WorkflowService::updateBlockStatus($cch, 8, $isDraft);
+        // Status Block 8 hanya di-submit oleh admin owner (PIC tidak mengubah status master)
+        if ($isOwnerAdmin) {
+            WorkflowService::updateBlockStatus($cch, 8, $isDraft);
+        }
 
         if ($isDraft) {
             AuditLogService::logDraft($id, 'Block 8', $sphereUser['id']);
@@ -137,6 +229,40 @@ class Block8OccurrenceController extends Controller
         ]);
     }
 
+    /**
+     * Submit Block 8 as a whole (admin owner only).
+     * Requires at least 1 PIC header to exist.
+     */
+    public function submitBlock(Request $request, $id): JsonResponse
+    {
+        $cch = Cch::find($id);
+        if (!$cch) return response()->json(['success' => false, 'message' => 'CCH not found'], 404);
+
+        $sphereUser = $request->attributes->get('sphere_user');
+        $roleLevel  = (int)($sphereUser['role_level'] ?? 99);
+        $userId     = (int)($sphereUser['id'] ?? 0);
+        $ownerId    = $this->getOwnerId($cch);
+
+        // Only admin owner may submit the block
+        if (!$this->isAdmin($roleLevel) || $ownerId === null || $ownerId !== $userId) {
+            return response()->json(['success' => false, 'message' => 'Hanya admin penerbit CCH yang dapat submit Block 8.'], 403);
+        }
+
+        // Require at least 1 PIC header
+        $headerCount = CchOccurrencePic::where('cch_id', $id)->count();
+        if ($headerCount < 1) {
+            return response()->json(['success' => false, 'message' => 'Minimal 1 header harus ada sebelum Block 8 dapat disubmit.'], 422);
+        }
+
+        WorkflowService::updateBlockStatus($cch, 8, false);
+        AuditLogService::logSubmit($id, 'Block 8', $userId);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Block 8 berhasil disubmit.',
+        ]);
+    }
+
     // ─── Root Causes ────────────────────────────────────────────────────────
 
     public function addCause(Request $request, $id): JsonResponse
@@ -145,18 +271,27 @@ class Block8OccurrenceController extends Controller
         if (!$cch) return response()->json(['success' => false, 'message' => 'CCH not found'], 404);
 
         $sphereUser = $request->attributes->get('sphere_user');
-        if ($error = WorkflowService::checkBlockAccess($cch, $sphereUser, 8)) {
-            return response()->json($error, 403);
-        }
+        $roleLevel = (int)($sphereUser['role_level'] ?? 99);
+        $userId = (int)($sphereUser['id'] ?? 0);
+        $ownerId = $this->getOwnerId($cch);
+        $isOwnerAdmin = $this->isAdmin($roleLevel) && $ownerId !== null && $ownerId === $userId;
+        $isManager = $this->isManagerOrPresdirGm($roleLevel);
+        $isPic = !$isOwnerAdmin && $this->isEligiblePic((int)$id, $userId);
+
+        if ($isManager) return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
+        if (!$isOwnerAdmin && !$isPic) return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
 
         $validated = $request->validate([
             'primary_factor'   => 'required|in:Man,Method,Machine,Material,Design',
             'master_cause_id'  => 'nullable|exists:m_causes,id',
             'cause_description'=> 'required|string',
             'sort_order'       => 'integer',
+            'pic_user_id'      => 'nullable|integer',
         ]);
 
+        $picUserId = $isOwnerAdmin ? (int)($validated['pic_user_id'] ?? $userId) : $userId;
         $validated['cch_id']     = $id;
+        $validated['pic_user_id']= $picUserId;
         $validated['cause_type'] = 'occurrence';
         $validated['sort_order'] = $validated['sort_order'] ?? 1;
 
@@ -178,9 +313,16 @@ class Block8OccurrenceController extends Controller
         if (!$cch) return response()->json(['success' => false, 'message' => 'CCH not found'], 404);
 
         $sphereUser = $request->attributes->get('sphere_user');
-        if ($error = WorkflowService::checkBlockAccess($cch, $sphereUser, 8)) {
-            return response()->json($error, 403);
-        }
+        $roleLevel = (int)($sphereUser['role_level'] ?? 99);
+        $userId = (int)($sphereUser['id'] ?? 0);
+        $ownerId = $this->getOwnerId($cch);
+        $isOwnerAdmin = $this->isAdmin($roleLevel) && $ownerId !== null && $ownerId === $userId;
+        $isManager = $this->isManagerOrPresdirGm($roleLevel);
+        $isPic = !$isOwnerAdmin && $this->isEligiblePic((int)$id, $userId);
+
+        if ($isManager) return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
+        if (!$isOwnerAdmin && !$isPic) return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
+        if ($isPic && (int)$cause->pic_user_id !== $userId) return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
 
         $validated = $request->validate([
             'primary_factor'   => 'required|in:Man,Method,Machine,Material,Design',
@@ -207,9 +349,16 @@ class Block8OccurrenceController extends Controller
         if (!$cch) return response()->json(['success' => false, 'message' => 'CCH not found'], 404);
 
         $sphereUser = $request->attributes->get('sphere_user');
-        if ($error = WorkflowService::checkBlockAccess($cch, $sphereUser, 8)) {
-            return response()->json($error, 403);
-        }
+        $roleLevel = (int)($sphereUser['role_level'] ?? 99);
+        $userId = (int)($sphereUser['id'] ?? 0);
+        $ownerId = $this->getOwnerId($cch);
+        $isOwnerAdmin = $this->isAdmin($roleLevel) && $ownerId !== null && $ownerId === $userId;
+        $isManager = $this->isManagerOrPresdirGm($roleLevel);
+        $isPic = !$isOwnerAdmin && $this->isEligiblePic((int)$id, $userId);
+
+        if ($isManager) return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
+        if (!$isOwnerAdmin && !$isPic) return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
+        if ($isPic && (int)$cause->pic_user_id !== $userId) return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
 
         $cause->delete();
 

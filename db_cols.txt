@@ -1,0 +1,10 @@
+Array
+(
+    [0] => id
+    [1] => cch_id
+    [2] => cause_type
+    [3] => primary_factor
+    [4] => master_cause_id
+    [5] => cause_description
+    [6] => sort_order
+)

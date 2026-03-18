@@ -9,6 +9,7 @@ use App\Models\CchDfa;
 use App\Models\Cch;
 use App\Services\WorkflowService;
 use App\Services\AuditLogService;
+use App\Models\CchDfaAttachment;
 
 class Block7DfaController extends Controller
 {
@@ -45,13 +46,39 @@ class Block7DfaController extends Controller
         $rules = [
             'occurrence_mechanism' => 'nullable|string',
             'outflow_mechanism' => 'nullable|string',
-            'author_comment' => 'nullable|string'
+            'author_comment' => 'nullable|string',
+            'dfa_files.*' => 'nullable|file|mimes:pdf,jpg,jpeg,png,xlsx,docx|max:10240',
+            'action_files.*' => 'nullable|file|mimes:pdf,jpg,jpeg,png,xlsx,docx|max:10240',
         ];
 
         $rules = WorkflowService::applyDraftRules($rules, $isDraft);
         $validated = $request->validate($rules);
 
-        $dfa = CchDfa::updateOrCreate(['cch_id' => $id], $validated);
+        $dfaData = collect($validated)->except(['dfa_files', 'action_files'])->toArray();
+        $dfa = CchDfa::updateOrCreate(['cch_id' => $id], $dfaData);
+
+        // Upload files
+        foreach (['dfa_files', 'action_files'] as $field) {
+            if ($request->hasFile($field)) {
+                foreach ($request->file($field) as $file) {
+                    $originalName = $file->getClientOriginalName();
+                    $fileName = date('Ymd_His') . '_' . preg_replace('/[^A-Za-z0-9\-\_\.]/', '_', $originalName);
+                    $storedPath = $file->storeAs("cch/{$cch->cch_id}/dfa", $fileName, 'public');
+
+                    CchDfaAttachment::create([
+                        'cch_id' => $cch->cch_id,
+                        'file_name' => $originalName,
+                        'file_path' => $storedPath,
+                        'file_size_kb' => round($file->getSize() / 1024, 2),
+                        'uploaded_by' => $sphereUser['id'],
+                        // must match DB ENUM values (see create_t_cch_dfa_table migration)
+                        'attachment_type' => $field === 'dfa_files'
+                            ? 'analysis_sheet'
+                            : 'corrective_action_sheet'
+                    ]);
+                }
+            }
+        }
 
         WorkflowService::updateBlockStatus($cch, 7, $isDraft);
 
@@ -64,7 +91,7 @@ class Block7DfaController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Block 7 updated successfully',
-            'data'    => $dfa
+            'data'    => $dfa->load('attachments')
         ]);
     }
 }

@@ -13,6 +13,7 @@ class CchBasic extends Model
 
     protected $fillable = [
         'cch_id', 'subject', 'division_id', 'report_category', 'customer_id',
+        'plant_of_customer',
         'defect_class', 'line_stop', 'count_by_customer',
         'month_of_counted', 'importance_internal', 'importance_internal_class',
         'importance_customer', 'toyota_rank',
@@ -25,6 +26,7 @@ class CchBasic extends Model
     public function cch(): BelongsTo { return $this->belongsTo(Cch::class, 'cch_id', 'cch_id'); }
     public function division(): BelongsTo { return $this->belongsTo(Division::class, 'division_id', 'id'); }
     public function customer(): BelongsTo { return $this->belongsTo(BusinessPartner::class, 'customer_id', 'bp_code'); }
+    public function plant(): BelongsTo { return $this->belongsTo(Plant::class, 'plant_of_customer', 'plant_id'); }
 }
 
 class CchBasicAttachment extends Model

@@ -9,6 +9,8 @@ use App\Models\CchTemporary;
 use App\Models\Cch;
 use App\Services\WorkflowService;
 use App\Services\AuditLogService;
+use App\Models\CchTemporaryAttachment;
+use Illuminate\Support\Facades\Storage;
 
 class Block4TemporaryController extends Controller
 {
@@ -43,13 +45,36 @@ class Block4TemporaryController extends Controller
         }
 
         $rules = [
-            'author_comment' => 'required|string'
+            // Author comment sekarang dihandle oleh modul komentar terpisah.
+            // Di sini hanya validasi lampiran tambahan (jika ada).
+            'attachment_files.*' => 'nullable|file|mimes:pdf,jpg,jpeg,png,xlsx,docx|max:10240'
         ];
 
         $rules = WorkflowService::applyDraftRules($rules, $isDraft);
         $validated = $request->validate($rules);
 
-        $temporary = CchTemporary::updateOrCreate(['cch_id' => $id], $validated);
+        $tempData = collect($validated)->except(['attachment_files'])->toArray();
+        if ($isDraft) {
+            $tempData = WorkflowService::sanitizeDraftData($tempData, 4);
+        }
+        $temporary = CchTemporary::updateOrCreate(['cch_id' => $id], $tempData);
+
+        if ($request->hasFile('attachment_files')) {
+            foreach ($request->file('attachment_files') as $file) {
+                $originalName = $file->getClientOriginalName();
+                $fileName = date('Ymd_His') . '_' . preg_replace('/[^A-Za-z0-9\-\_\.]/', '_', $originalName);
+                $path = "cch/{$cch->cch_id}/temporary";
+                $storedPath = $file->storeAs($path, $fileName, 'public');
+
+                CchTemporaryAttachment::create([
+                    'cch_id' => $cch->cch_id,
+                    'file_name' => $originalName,
+                    'file_path' => $storedPath,
+                    'file_size_kb' => round($file->getSize() / 1024, 2),
+                    'uploaded_by' => $sphereUser['id']
+                ]);
+            }
+        }
 
         WorkflowService::updateBlockStatus($cch, 4, $isDraft);
 

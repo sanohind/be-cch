@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use App\Models\CchRequest;
 use App\Models\Cch;
+use App\Models\Division;
 use App\Services\WorkflowService;
 use App\Services\AuditLogService;
 
@@ -29,11 +30,26 @@ class Block5RequestController extends Controller
         }
 
         $validated = $request->validate([
-            'department' => 'required|string|max:200',
+            // department/division untuk menentukan PIC
+            'division_id' => 'nullable|integer|exists:sphere.departments,id',
+            'department'  => 'nullable|string|max:200',
             'due_date' => 'required|date',
             'description' => 'required|string',
             'status' => 'nullable|in:open,in_progress,completed'
         ]);
+
+        if (empty($validated['division_id']) && empty($validated['department'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Department is required',
+                'errors'  => ['department' => ['Department wajib diisi (pilih department/division).']],
+            ], 422);
+        }
+
+        if (!empty($validated['division_id']) && empty($validated['department'])) {
+            $div = Division::query()->select('id', 'name')->find($validated['division_id']);
+            $validated['department'] = $div?->name ?? (string)$validated['division_id'];
+        }
 
         $validated['cch_id'] = $id;
         $validated['status'] = $validated['status'] ?? 'open';
@@ -61,11 +77,17 @@ class Block5RequestController extends Controller
         }
 
         $validated = $request->validate([
-            'department' => 'sometimes|required|string|max:200',
+            'division_id' => 'sometimes|nullable|integer|exists:sphere.departments,id',
+            'department'  => 'sometimes|nullable|string|max:200',
             'due_date' => 'sometimes|required|date',
             'description' => 'sometimes|required|string',
             'status' => 'sometimes|required|in:open,in_progress,completed'
         ]);
+
+        if (array_key_exists('division_id', $validated) && !empty($validated['division_id']) && empty($validated['department'])) {
+            $div = Division::query()->select('id', 'name')->find($validated['division_id']);
+            $validated['department'] = $div?->name ?? (string)$validated['division_id'];
+        }
 
         $cchRequest->update($validated);
 

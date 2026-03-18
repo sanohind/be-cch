@@ -19,12 +19,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class CchCause extends Model
 {
     protected $table = 't_cch_causes';
-    protected $primaryKey = 'id';
+    protected $primaryKey = 'cause_id';
     public $incrementing = true;
     public $timestamps = false;
 
     protected $fillable = [
         'cch_id',
+        'pic_user_id',
         'cause_type',
         'primary_factor',
         'master_cause_id',   // FK ke m_causes.id (nullable)

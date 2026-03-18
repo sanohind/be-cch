@@ -9,6 +9,7 @@ use App\Models\CchRa;
 use App\Models\Cch;
 use App\Services\WorkflowService;
 use App\Services\AuditLogService;
+use App\Models\CchRaAttachment;
 
 class Block6RaController extends Controller
 {
@@ -43,13 +44,34 @@ class Block6RaController extends Controller
         }
 
         $rules = [
-            'author_comment' => 'required|string'
+            'author_comment' => 'required|string',
+            'attachment_files.*' => 'nullable|file|mimes:pdf,jpg,jpeg,png,xlsx,docx|max:10240'
         ];
 
         $rules = WorkflowService::applyDraftRules($rules, $isDraft);
         $validated = $request->validate($rules);
 
-        $ra = CchRa::updateOrCreate(['cch_id' => $id], $validated);
+        $raData = collect($validated)->except(['attachment_files'])->toArray();
+        if ($isDraft) {
+            $raData = WorkflowService::sanitizeDraftData($raData, 6);
+        }
+        $ra = CchRa::updateOrCreate(['cch_id' => $id], $raData);
+
+        if ($request->hasFile('attachment_files')) {
+            foreach ($request->file('attachment_files') as $file) {
+                $originalName = $file->getClientOriginalName();
+                $fileName = date('Ymd_His') . '_' . preg_replace('/[^A-Za-z0-9\-\_\.]/', '_', $originalName);
+                $storedPath = $file->storeAs("cch/{$cch->cch_id}/ra", $fileName, 'public');
+
+                CchRaAttachment::create([
+                    'cch_id' => $cch->cch_id,
+                    'file_name' => $originalName,
+                    'file_path' => $storedPath,
+                    'file_size_kb' => round($file->getSize() / 1024, 2),
+                    'uploaded_by' => $sphereUser['id']
+                ]);
+            }
+        }
 
         WorkflowService::updateBlockStatus($cch, 6, $isDraft);
 
@@ -62,7 +84,7 @@ class Block6RaController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Block 6 updated successfully',
-            'data'    => $ra
+            'data'    => $ra->load('attachments')
         ]);
     }
 }
