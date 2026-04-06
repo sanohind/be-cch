@@ -5,14 +5,16 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 
 /**
- * Verify JWT Token from Sphere SSO
+ * Verify JWT & OIDC Token from Sphere SSO
  *
- * Validates JWT tokens issued by Sphere (HS256) and attaches
- * the sphere_user information to the request attributes.
+ * Validates remote OIDC tokens using Sphere's introspect endpoint
+ * or falls back to local JWT validation using HS256 algorithm.
  */
 class VerifySphereToken
 {
@@ -27,22 +29,84 @@ class VerifySphereToken
             ], 401);
         }
 
+        // 1. Attempt OIDC remote token validation first
+        $userData = $this->validateOidcToken($token);
+
+        // 2. Fallback to Local JWT validation
+        if (!$userData) {
+            $userData = $this->validateLocalJwtToken($token);
+        }
+
+        if (!$userData) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid or expired token',
+            ], 401);
+        }
+
+        // Attach full sphere user info to request
+        $sphereArr = [
+            'id'              => $userData['id'] ?? $userData['sub'] ?? null,
+            'email'           => $userData['email'] ?? null,
+            'username'        => $userData['username'] ?? null,
+            'name'            => $userData['name'] ?? null,
+            'role'            => $userData['role'] ?? ($userData['role']['slug'] ?? null),
+            'role_level'      => $userData['role_level'] ?? ($userData['role']['level'] ?? null),
+            'department_id'   => $userData['department_id'] ?? ($userData['department']['id'] ?? null),
+            'department_code' => $userData['department_code'] ?? ($userData['department']['code'] ?? null),
+            'department_name' => $userData['department_name'] ?? ($userData['department']['name'] ?? null),
+        ];
+
+        // Auto-sync user to CCH database, then override ID
+        $cchUser = \App\Models\CchUser::syncFromSphere($sphereArr);
+        $sphereArr['sphere_id'] = $sphereArr['id']; // Preserve Sphere ID
+        $sphereArr['id'] = $cchUser->id; // Override to strictly enforce CchUser local ID in all Controllers!
+
+        $request->attributes->set('sphere_user', $sphereArr);
+        $request->attributes->set('cch_user', $cchUser);
+
+        return $next($request);
+    }
+
+    /**
+     * Call SPHERE_API_URL/api/oauth/verify-token
+     */
+    protected function validateOidcToken($token): ?array
+    {
+        $sphereUrl = env('SPHERE_API_URL');
+        if (!$sphereUrl) return null;
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $token,
+                'Accept' => 'application/json',
+            ])->timeout(5)->get($sphereUrl . '/api/oauth/verify-token');
+
+            if ($response->successful()) {
+                $data = $response->json();
+                return $data['data']['user'] ?? null;
+            }
+        } catch (\Exception $e) {
+            Log::warning('CCH: OIDC Remote verification failed: ' . $e->getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Local JWT HS256 fallback decode
+     */
+    protected function validateLocalJwtToken($token): ?array
+    {
         try {
             $jwtSecret = env('SPHERE_JWT_SECRET');
-
             if (!$jwtSecret) {
-                \Log::error('CCH: Sphere JWT secret not configured (SPHERE_JWT_SECRET missing)');
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Server configuration error',
-                ], 500);
+                Log::error('CCH: Sphere JWT secret not configured (SPHERE_JWT_SECRET missing)');
+                return null;
             }
 
-            // Decode and verify JWT using HS256 algorithm
             $decoded = JWT::decode($token, new Key($jwtSecret, 'HS256'));
 
-            // Attach full sphere user info to request
-            $sphereArr = [
+            return [
                 'id'              => $decoded->sub ?? $decoded->id ?? null,
                 'email'           => $decoded->email ?? null,
                 'username'        => $decoded->username ?? null,
@@ -53,33 +117,9 @@ class VerifySphereToken
                 'department_code' => $decoded->department_code ?? null,
                 'department_name' => $decoded->department_name ?? null,
             ];
-
-            // Auto-sync user to CCH database, then override ID
-            $cchUser = \App\Models\CchUser::syncFromSphere($sphereArr);
-            $sphereArr['sphere_id'] = $sphereArr['id']; // Preserve Sphere ID
-            $sphereArr['id'] = $cchUser->id; // Override to strictly enforce CchUser local ID in all Controllers!
-
-            $request->attributes->set('sphere_user', $sphereArr);
-            $request->attributes->set('cch_user', $cchUser);
-
-            return $next($request);
-
-        } catch (\Firebase\JWT\ExpiredException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Token expired',
-            ], 401);
-        } catch (\Firebase\JWT\SignatureInvalidException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid token signature',
-            ], 401);
         } catch (\Exception $e) {
-            \Log::error('CCH: Token verification failed: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid token',
-            ], 401);
+            Log::error('CCH: Local JWT fallback verification failed: ' . $e->getMessage());
+            return null;
         }
     }
 }
