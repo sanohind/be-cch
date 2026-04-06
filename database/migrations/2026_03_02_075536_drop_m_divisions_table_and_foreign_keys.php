@@ -12,6 +12,7 @@ return new class extends Migration
         // Drop foreign keys safely using raw SQL (IF EXISTS not supported in MySQL for FK,
         // so we check information_schema first)
         $fks = [
+            ['table' => 'm_plants',    'fk' => 'm_plants_division_id_foreign'],
             ['table' => 't_cch',       'fk' => 't_cch_division_id_foreign'],
             ['table' => 'cch_users',   'fk' => 'cch_users_division_id_foreign'],
             ['table' => 't_cch_basic', 'fk' => 't_cch_basic_division_id_foreign'],
