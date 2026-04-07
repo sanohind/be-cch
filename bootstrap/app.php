@@ -12,8 +12,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // CORS — must run before all other middleware, including auth
-        $middleware->prepend(\App\Http\Middleware\CorsMiddleware::class);
+        // Sama seperti SCOPE: masukkan ke grup api
+        $middleware->api(prepend: [
+            \App\Http\Middleware\CorsMiddleware::class,
+        ]);
 
         // Register Sphere SSO token verification middleware alias
         $middleware->alias([
