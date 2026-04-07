@@ -12,9 +12,13 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // CORS — must run before all other middleware, including auth
+        $middleware->prepend(\App\Http\Middleware\CorsMiddleware::class);
+
         // Register Sphere SSO token verification middleware alias
         $middleware->alias([
             'sphere.auth' => \App\Http\Middleware\VerifySphereToken::class,
+            'cors'        => \App\Http\Middleware\CorsMiddleware::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
