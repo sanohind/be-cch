@@ -44,17 +44,28 @@ class VerifySphereToken
             ], 401);
         }
 
+        // Handle role which could be an array or string
+        $roleData = $userData['role'] ?? null;
+        $roleSlug = is_array($roleData) ? ($roleData['slug'] ?? null) : $roleData;
+        $roleLevel = is_array($roleData) ? ($roleData['level'] ?? null) : ($userData['role_level'] ?? null);
+
+        // Handle department which could be an array or string
+        $deptData = $userData['department'] ?? null;
+        $deptId = is_array($deptData) ? ($deptData['id'] ?? null) : ($userData['department_id'] ?? null);
+        $deptCode = is_array($deptData) ? ($deptData['code'] ?? null) : ($userData['department_code'] ?? null);
+        $deptName = is_array($deptData) ? ($deptData['name'] ?? null) : ($userData['department_name'] ?? null);
+
         // Attach full sphere user info to request
         $sphereArr = [
             'id'              => $userData['id'] ?? $userData['sub'] ?? null,
             'email'           => $userData['email'] ?? null,
-            'username'        => $userData['username'] ?? null,
+            'username'        => $userData['username'] ?? ($userData['preferred_username'] ?? null),
             'name'            => $userData['name'] ?? null,
-            'role'            => $userData['role'] ?? ($userData['role']['slug'] ?? null),
-            'role_level'      => $userData['role_level'] ?? ($userData['role']['level'] ?? null),
-            'department_id'   => $userData['department_id'] ?? ($userData['department']['id'] ?? null),
-            'department_code' => $userData['department_code'] ?? ($userData['department']['code'] ?? null),
-            'department_name' => $userData['department_name'] ?? ($userData['department']['name'] ?? null),
+            'role'            => $roleSlug,
+            'role_level'      => $roleLevel,
+            'department_id'   => $deptId,
+            'department_code' => $deptCode,
+            'department_name' => $deptName,
         ];
 
         // Auto-sync user to CCH database, then override ID
