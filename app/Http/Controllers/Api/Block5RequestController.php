@@ -98,7 +98,7 @@ class Block5RequestController extends Controller
         ]);
     }
 
-    public function destroy($id, $reqId): JsonResponse
+    public function destroy(Request $request, $id, $reqId): JsonResponse
     {
         $cchRequest = CchRequest::where('cch_id', $id)->where('request_id', $reqId)->first();
         if (!$cchRequest) return response()->json(['success' => false, 'message' => 'Request not found'], 404);
