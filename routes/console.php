@@ -9,5 +9,5 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('cch:sync-sphere-users')
-    ->dailyAt('07:00')
+    ->hourly()
     ->withoutOverlapping();
