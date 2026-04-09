@@ -468,9 +468,9 @@ body {
       </div>
 
       <!-- CTA -->
-      <div class="cta-section">
+      <!-- <div class="cta-section">
         <a class="btn-primary">Lihat &amp; Balas Komentar</a>
-      </div>
+      </div> -->
 
       <!-- Footer note -->
       <div class="footer-note">

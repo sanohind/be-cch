@@ -271,9 +271,9 @@ td { vertical-align: top; }
       </table>
 
       <!-- CTA -->
-      <div class="cta-section">
+      <!-- <div class="cta-section">
         <a href="{{ $cchUrl }}" class="btn-primary">Pergi ke Close Application</a>
-      </div>
+      </div> -->
 
       <!-- Footer note -->
       <div class="footer-note">
