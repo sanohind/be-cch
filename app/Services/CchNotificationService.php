@@ -179,6 +179,7 @@ class CchNotificationService
         try {
             $cch->loadMissing(['basic', 'inputBy']);
             $subject   = $cch->basic?->subject ?? $cch->cch_number;
+            $rank      = $cch->basic?->importance_internal ?? '-';
             $blockName = self::$blockNames[$blockNumber] ?? "Block {$blockNumber}";
             $url       = self::cchUrl($cch->cch_id);
 
@@ -218,11 +219,17 @@ class CchNotificationService
             // Manager QC
             $users = array_merge($users, self::getManagerQcUsers());
 
+            // Jika Rank A, tambahkan Presdir/GM
+            if ($rank === 'A') {
+                $users = array_merge($users, self::getPresdirGmUsers());
+            }
+
             // Admin PIC department dari Block 5
             $users = array_merge($users, self::getRequestedAdminPics($cch->cch_id));
 
             $users = self::uniqueUsers($users);
-            $message = "[CCH {$cch->cch_number}] Komentar baru: {$commentSubject}";
+            $rankLabel = $rank === 'A' ? '[Rank A] ' : '';
+            $message = "{$rankLabel}[CCH {$cch->cch_number}] Komentar baru: {$commentSubject}";
 
             foreach ($users as $user) {
                 self::logToDb($cch->cch_id, 'Question', $user['id'], $message);
