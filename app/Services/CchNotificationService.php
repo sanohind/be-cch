@@ -46,9 +46,9 @@ class CchNotificationService
             $cch->loadMissing('basic');
             $rank    = $cch->basic?->importance_internal ?? '-';
             $subject = $cch->basic?->subject ?? $cch->cch_number;
-            $url     = self::cchUrl($cch->cch_id);
+            $url     = self::cchUrl($cch->cch_id, 1);
 
-            $users = self::getManagerQcUsers();
+            $users = self::getManagerUsers();
 
             // Rank A → tambahkan Presdir/GM
             if ($rank === 'A') {
@@ -84,9 +84,9 @@ class CchNotificationService
             $rank     = $cch->basic?->importance_internal ?? '-';
             $subject  = $cch->basic?->subject ?? $cch->cch_number;
             $blockName = self::$blockNames[$blockNumber] ?? "Block {$blockNumber}";
-            $url      = self::cchUrl($cch->cch_id);
+            $url      = self::cchUrl($cch->cch_id, $blockNumber);
 
-            $users = self::getManagerQcUsers();
+            $users = self::getManagerUsers();
 
             if ($rank === 'A') {
                 $users = array_merge($users, self::getPresdirGmUsers());
@@ -148,7 +148,7 @@ class CchNotificationService
         try {
             $cch->loadMissing(['basic', 'inputBy']);
             $subject = $cch->basic?->subject ?? $cch->cch_number;
-            $url     = self::cchUrl($cch->cch_id);
+            $url     = self::cchUrl($cch->cch_id, 10);
 
             $creatorUser = $cch->inputBy;
             $message = "CCH {$subject} telah di-close";
@@ -181,7 +181,7 @@ class CchNotificationService
             $subject   = $cch->basic?->subject ?? $cch->cch_number;
             $rank      = $cch->basic?->importance_internal ?? '-';
             $blockName = self::$blockNames[$blockNumber] ?? "Block {$blockNumber}";
-            $url       = self::cchUrl($cch->cch_id);
+            $url       = self::cchUrl($cch->cch_id, $blockNumber);
 
             $users = [];
 
@@ -216,8 +216,8 @@ class CchNotificationService
                 }
             }
 
-            // Manager QC
-            $users = array_merge($users, self::getManagerQcUsers());
+            // Manager
+            $users = array_merge($users, self::getManagerUsers());
 
             // Jika Rank A, tambahkan Presdir/GM
             if ($rank === 'A') {
@@ -266,10 +266,9 @@ class CchNotificationService
         }
     }
 
-    private static function getManagerQcUsers(): array
+    private static function getManagerUsers(): array
     {
         return CchUser::where('sphere_role_level', 5)
-            ->where('sphere_department_id', self::QC_DEPT_ID)
             ->where('is_active', true)
             ->whereNotNull('email')
             ->where('email', '!=', '')
@@ -317,10 +316,29 @@ class CchNotificationService
         return $unique;
     }
 
-    private static function cchUrl(int $cchId): string
+    private static function cchUrl(int $cchId, ?int $blockNumber = null): string
     {
         $base = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'http://localhost:5176')), '/');
-        return "{$base}/cch/{$cchId}";
+        $url = "{$base}/#/subject-detail/{$cchId}";
+        
+        if ($blockNumber) {
+            $tab = match ($blockNumber) {
+                1 => 'basic',
+                2 => 'primary',
+                3 => 'srta',
+                4 => 'temporary',
+                5 => 'request',
+                6 => 'ra',
+                7 => 'dfa',
+                8 => 'occurrence',
+                9 => 'outflow',
+                10 => 'close',
+                default => 'basic',
+            };
+            $url .= "?tab={$tab}";
+        }
+        
+        return $url;
     }
 }
 

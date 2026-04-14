@@ -86,8 +86,8 @@ class CchController extends Controller
          * Level 5 (Manager)     : hanya CCH yang t_cch.division_id = division user
          * Lainnya               : hanya CCH yang dia buat
          */
-        if ($roleLevel === 1) {
-            // Superadmin: lihat semua
+        if ($roleLevel === 1 || $roleLevel === 5) {
+            // Superadmin & Manager: lihat semua
 
         } elseif ($roleLevel === 2) {
             // Admin: CCH yang dibuat sendiri ATAU divisinya ada di Block 5 Request
@@ -108,16 +108,6 @@ class CchController extends Controller
             $query->whereHas('basic', function ($q) {
                 $q->where('importance_internal', 'A');
             });
-
-        } elseif ($roleLevel === 5) {
-            // Manager: hanya CCH yang division_id di Block 1 sesuai divisinya
-            $userDivisionId = CchUser::select('division_id')->find($cchUserId)?->division_id;
-
-            if ($userDivisionId) {
-                $query->where('t_cch.division_id', $userDivisionId);
-            } else {
-                $query->whereRaw('1 = 0');
-            }
 
         } else {
             // Role lain: hanya CCH yang dia buat
@@ -386,7 +376,7 @@ class CchController extends Controller
         }
 
         // ── Visibility guard (same rules as index) ─────────────────────────
-        if ($roleLevel !== 1 && $roleLevel !== 2) {
+        if ($roleLevel !== 1 && $roleLevel !== 2 && $roleLevel !== 5) {
             $cchUser        = CchUser::select('id', 'division_id')->find($cchUserId);
             $userDivisionId = (int) ($cchUser?->division_id ?? 0);
             $importance     = $cch->basic?->importance_internal ?? null;
@@ -397,10 +387,6 @@ class CchController extends Controller
             if ($roleLevel === 4) {
                 // Presdir/GM: hanya rank A
                 $allowed = ($importance === 'A');
-
-            } elseif ($roleLevel === 5) {
-                // Manager: division_id Block 1 harus cocok
-                $allowed = $userDivisionId && ($cchDivisionId === $userDivisionId);
 
             } else {
                 // Lainnya: hanya creator

@@ -83,23 +83,19 @@ class Block10ClosingController extends Controller
     {
         $ctx = $this->resolveContext($cch, $sphereUser);
 
-        // Superadmin
-        if ($ctx['roleLevel'] === 1) return null;
+        // Superadmin and Manager
+        if (in_array($ctx['roleLevel'], [1, 5])) return null;
 
         // Admin owner (fills form)
         if ($ctx['isOwnerAdmin']) return null;
 
-        // Rank A: Presdir/GM (4) + Manager QC (view-only)
+        // Rank A: Presdir/GM (4)
         if ($ctx['importance'] === 'A') {
             if ($ctx['roleLevel'] === 4) return null;
-            if ($ctx['isMgrQc']) return null;  // Manager QC: boleh view, tidak boleh close
-            return ['success' => false, 'message' => 'Akses Close untuk CCH Rank A hanya untuk Presdir/GM atau Manager QC.'];
+            return ['success' => false, 'message' => 'Akses Close untuk CCH Rank A hanya untuk Presdir/GM.'];
         }
 
-        // Non-A: hanya Manager QC yang bisa akses close tab
-        if ($ctx['isMgrQc']) return null;
-
-        return ['success' => false, 'message' => 'Akses Close tab hanya untuk Manager QC.'];
+        return ['success' => false, 'message' => 'Anda tidak memiliki akses ke tab Close.'];
     }
 
     /**
@@ -119,10 +115,10 @@ class Block10ClosingController extends Controller
             return ['success' => false, 'message' => 'Untuk CCH Rank A, hanya Presdir/GM yang dapat melakukan Close Application.'];
         }
 
-        // Non-A: hanya Manager QC
-        if ($ctx['isMgrQc']) return null;
+        // Non-A: hanya Manager
+        if ($ctx['roleLevel'] === 5) return null;
 
-        return ['success' => false, 'message' => 'Hanya Manager QC yang dapat melakukan Close Application untuk CCH ini.'];
+        return ['success' => false, 'message' => 'Hanya Manager yang dapat melakukan Close Application untuk CCH ini.'];
     }
 
     // ─── Endpoints ─────────────────────────────────────────────────────────────
