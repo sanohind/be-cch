@@ -46,16 +46,17 @@ class Block2PrimaryController extends Controller
 
         $rules = [
             'failure_mode_id' => 'required|exists:m_failure_modes,failure_mode_id',
+            'failure_mode_other' => 'nullable|string|max:255',
             'defect_found_date' => 'required|date',
             'defect_found_date_end' => 'nullable|date|after_or_equal:defect_found_date',
             'defect_qty' => 'required|integer|min:0',
             'comment' => 'nullable|string',
             'part_number' => 'required|string|max:100',
-            'part_name' => 'required|string|max:200', 
+            'part_name' => 'required|string|max:200',
             'product_category_id' => 'required|exists:m_product_categories,category_id',
             'product_family_id' => 'required|exists:m_product_families,family_id',
             'phase' => 'required|in:Trial,Trail_for_mass_production,Mass_production_first_3months,Mass_production_after_3months,Service_parts',
-            'product_supply_form' => 'required|in:Knock_down_product,Pass_through_product,Not_subject',
+            'product_supply_form' => 'required|in:Inhouse_product,Knock_down_product,Pass_through_product,Not_subject',
             'estimation_occurrence_outflow' => 'nullable|string',
             'possibility_spreading' => 'required|in:YES,NO',
             'spreading_detail' => 'nullable|string',
@@ -87,7 +88,7 @@ class Block2PrimaryController extends Controller
         $primary = CchPrimary::updateOrCreate(['cch_id' => $id], $primaryData);
 
         // Upload Attachments
-        foreach (['overall_files' => 'overall', 'rejection_files' => 'rejection_area', 'attachment_files' => null] as $key => $type) {
+        foreach (['overall_files' => 'overall', 'rejection_files' => 'rejection_area', 'attachment_files' => 'attachment'] as $key => $type) {
             if ($request->hasFile($key)) {
                 foreach ($request->file($key) as $file) {
                     $originalName = $file->getClientOriginalName();
@@ -97,7 +98,7 @@ class Block2PrimaryController extends Controller
 
                     CchPrimaryPhoto::create([
                         'cch_id' => $cch->cch_id,
-                        'photo_type' => $type ?? 'overall', // Fallback as 'overall' since only 2 types in ENUM
+                        'photo_type' => $type,
                         'file_name' => $originalName,
                         'file_path' => $storedPath,
                         'file_size_kb' => round($file->getSize() / 1024, 2),

@@ -55,7 +55,7 @@ class Block1BasicController extends Controller
             'division_id' => 'required|exists:sphere.departments,id',
             'report_category' => 'required|in:Customer,Market,Internal',
             'customer_id' => 'nullable|string|exists:erp.business_partner,bp_code',
-            'plant_of_customer' => 'nullable|integer|exists:m_plants,plant_id',
+            'plant_of_customer' => 'nullable|string|max:255',
             'defect_class' => 'required|in:Quality trouble,Delivery trouble',
             'line_stop' => 'required|in:YES,NO',
             'count_by_customer' => 'required|in:YES,NO_Responsibility,NO_No_Responsibility,Undetermined,Not_Applicable',
@@ -82,14 +82,7 @@ class Block1BasicController extends Controller
                 ], 422);
             }
 
-            // Business Rule: rank class required if internal is A or B
-            if (in_array($validated['importance_internal'] ?? '', ['A', 'B']) && empty($validated['importance_internal_class'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Importance internal class is required for rank A or B',
-                    'errors' => ['importance_internal_class' => ['Importance internal class wajib diisi untuk rank A atau B.']],
-                ], 422);
-            }
+            // Classification field removed from frontend — no longer validated
         }
 
         $sphereUser = $request->attributes->get('sphere_user');
