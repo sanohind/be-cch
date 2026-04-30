@@ -11,7 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * Admin-only CRUD: list & delete data. Hanya role_level 1 (Superadmin) atau 2 (Admin).
+ * Admin-only CRUD: list & delete data. Hanya role_level 1 (Superadmin) atau 6 (Supervisor).
  */
 class AdminController extends Controller
 {
@@ -19,7 +19,7 @@ class AdminController extends Controller
     {
         $sphereUser = $request->attributes->get('sphere_user') ?? [];
         $roleLevel = (int)($sphereUser['role_level'] ?? 99);
-        if (!in_array($roleLevel, [1, 2], true)) {
+        if (!in_array($roleLevel, [1, 6], true)) {
             return response()->json(['success' => false, 'message' => 'Forbidden. Admin only.'], 403);
         }
         return null;
@@ -33,7 +33,7 @@ class AdminController extends Controller
         $perPage = min((int)$request->query('per_page', 20), 100);
         $query = Cch::query()
             ->select(['t_cch.cch_id', 't_cch.cch_number', 't_cch.status', 't_cch.division_id', 't_cch.input_by', 't_cch.created_at'])
-            ->with(['inputBy:id,username,full_name', 'division:id,name,code', 'basic:basic_id,cch_id,subject'])
+            ->with(['inputBy:id,username,name', 'division:id,name,code', 'basic:basic_id,cch_id,subject'])
             ->orderByDesc('t_cch.cch_id');
 
         if ($request->filled('search')) {
@@ -64,7 +64,7 @@ class AdminController extends Controller
 
         $perPage = min((int)$request->query('per_page', 20), 100);
         $query = CchUser::query()
-            ->select(['id', 'sphere_user_id', 'username', 'full_name', 'email', 'division_id', 'sphere_role', 'sphere_role_level', 'last_login_at', 'is_active'])
+            ->select(['id', 'username', 'name', 'email', 'department_id', 'role_id', 'last_login_at', 'is_active'])
             ->with('division:id,name,code')
             ->orderByDesc('id');
 
@@ -72,7 +72,7 @@ class AdminController extends Controller
             $s = $request->query('search');
             $query->where(function ($q) use ($s) {
                 $q->where('username', 'like', "%{$s}%")
-                  ->orWhere('full_name', 'like', "%{$s}%")
+                  ->orWhere('name', 'like', "%{$s}%")
                   ->orWhere('email', 'like', "%{$s}%");
             });
         }
@@ -124,7 +124,7 @@ class AdminController extends Controller
 
         $perPage = min((int)$request->query('per_page', 20), 100);
         $query = CchComment::query()
-            ->with(['createdBy:id,username,full_name'])
+            ->with(['createdBy:id,username,name'])
             ->orderByDesc('comment_id');
 
         if ($request->filled('cch_id')) {

@@ -33,18 +33,25 @@ class SSOAuthController extends Controller
             ], 401);
         }
 
-        // Sync / create the cch_users record
-        $cchUser = CchUser::syncFromSphere($sphereUser);
+        // Fetch the user from sphere directly
+        $cchUser = CchUser::with(['division'])->find($sphereUser['id']);
+
+        if (!$cchUser) {
+            return response()->json([
+                'success' => false,
+                'message' => 'User not found in Sphere database',
+            ], 404);
+        }
 
         return response()->json([
             'success' => true,
             'user' => [
                 'id'             => $cchUser->id,
-                'sphere_user_id' => $cchUser->sphere_user_id,
+                'sphere_user_id' => $cchUser->id,
                 'username'       => $cchUser->username,
-                'name'           => $cchUser->full_name,
+                'name'           => $cchUser->name,
                 'email'          => $cchUser->email,
-                'cch_role'       => $cchUser->cch_role,
+                'cch_role'       => $sphereUser['role'] ?? null,
                 'is_active'      => $cchUser->is_active,
                 'division'       => $cchUser->division ? [
                     'id'   => $cchUser->division->id,
@@ -52,11 +59,7 @@ class SSOAuthController extends Controller
                     'name' => $cchUser->division->name,
                     'type' => null,
                 ] : null,
-                'plant' => $cchUser->plant ? [
-                    'id'   => $cchUser->plant->plant_id,
-                    'code' => $cchUser->plant->plant_code,
-                    'name' => $cchUser->plant->plant_name,
-                ] : null,
+                'plant' => null,
                 // Sphere department info (for reference)
                 'sphere' => [
                     'role'            => $sphereUser['role'],

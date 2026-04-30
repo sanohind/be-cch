@@ -27,7 +27,7 @@ class Block1BasicController extends Controller
             }
         }
 
-        $basic = CchBasic::with(['customer', 'plant'])->where('cch_id', $id)->first();
+        $basic = CchBasic::with(['customer'])->where('cch_id', $id)->first();
         if (!$basic) {
             return response()->json(['success' => false, 'message' => 'Block 1 not found'], 404);
         }
@@ -61,7 +61,6 @@ class Block1BasicController extends Controller
             'count_by_customer' => 'required|in:YES,NO_Responsibility,NO_No_Responsibility,Undetermined,Not_Applicable',
             'month_of_counted' => 'nullable|date',
             'importance_internal' => 'required|in:A,B,C,M,Not_Applicable',
-            'importance_internal_class' => 'nullable|in:1,2,3,4',
             'importance_customer' => 'nullable|in:A,B,C,Undetermined,Not_Applicable',
             'toyota_rank' => 'nullable|in:Critical,Major Function,A,B,C,Undetermined',
             'attachments.*' => 'nullable|file|mimes:pdf,jpg,jpeg,png,xlsx,docx|max:10240' // Multiple file attachments

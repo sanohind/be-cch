@@ -31,7 +31,6 @@ return new class extends Migration
             $table->index(['cch_id', 'division_id']);
 
             $table->foreign('cch_id')->references('cch_id')->on('t_cch')->cascadeOnDelete();
-            $table->foreign('pic_user_id')->references('id')->on('cch_users')->cascadeOnDelete();
             $table->foreign('process_id')->references('process_id')->on('m_processes')->nullOnDelete();
             $table->foreign('supplier_process_id')->references('process_id')->on('m_processes')->nullOnDelete();
         });
@@ -60,7 +59,6 @@ return new class extends Migration
             $table->index(['cch_id', 'division_id']);
 
             $table->foreign('cch_id')->references('cch_id')->on('t_cch')->cascadeOnDelete();
-            $table->foreign('pic_user_id')->references('id')->on('cch_users')->cascadeOnDelete();
             $table->foreign('process_id')->references('process_id')->on('m_processes')->nullOnDelete();
             $table->foreign('supplier_process_id')->references('process_id')->on('m_processes')->nullOnDelete();
         });

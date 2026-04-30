@@ -18,7 +18,6 @@ return new class extends Migration
             $table->timestamp('closed_at')->nullable();
             $table->timestamps();
 
-            $table->foreign('input_by')->references('id')->on('cch_users');
             $table->foreign('division_id')->references('division_id')->on('m_divisions');
         });
     }

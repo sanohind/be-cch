@@ -54,8 +54,6 @@ return new class extends Migration
 
             $table->foreign('cch_id')->references('cch_id')->on('t_cch')->cascadeOnDelete();
             $table->foreign('currency_id')->references('currency_id')->on('m_currencies')->nullOnDelete();
-            $table->foreign('submitted_by')->references('id')->on('cch_users')->nullOnDelete();
-            $table->foreign('approved_by')->references('id')->on('cch_users')->nullOnDelete();
         });
 
         // Add GENERATED COLUMN for cost_total (MySQL computed column)
@@ -72,7 +70,6 @@ return new class extends Migration
             $table->timestamp('uploaded_at')->useCurrent();
 
             $table->foreign('cch_id')->references('cch_id')->on('t_cch')->cascadeOnDelete();
-            $table->foreign('uploaded_by')->references('id')->on('cch_users');
         });
     }
 

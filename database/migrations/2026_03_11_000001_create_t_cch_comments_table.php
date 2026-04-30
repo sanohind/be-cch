@@ -22,7 +22,6 @@ return new class extends Migration
             $table->index(['cch_id', 'created_by']);
 
             $table->foreign('cch_id')->references('cch_id')->on('t_cch')->cascadeOnDelete();
-            $table->foreign('created_by')->references('id')->on('cch_users');
         });
     }
 

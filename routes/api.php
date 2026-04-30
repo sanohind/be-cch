@@ -55,9 +55,11 @@ Route::prefix('v1')->middleware('sphere.auth')->group(function () {
         Route::get('/causes', [\App\Http\Controllers\Api\MasterController::class, 'getCauses']);
         Route::get('/currencies', [\App\Http\Controllers\Api\MasterController::class, 'getCurrencies']);
         Route::get('/cch-filter-options', [\App\Http\Controllers\Api\MasterController::class, 'getCchFilterOptions']);
+        Route::get('/items', [\App\Http\Controllers\Api\Block2PrimaryController::class, 'getItems']);
     });
 
     // ─── CCH Core ────────────────────────────────────────────────────────────
+    Route::get('/cch/analytics', [\App\Http\Controllers\Api\CchAnalyticsController::class, 'index']);
     Route::get('/cch', [\App\Http\Controllers\Api\CchController::class, 'index']);
     Route::post('/cch', [\App\Http\Controllers\Api\CchController::class, 'store']);
     Route::get('/cch/{id}', [\App\Http\Controllers\Api\CchController::class, 'show']);

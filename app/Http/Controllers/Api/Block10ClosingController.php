@@ -57,22 +57,20 @@ class Block10ClosingController extends Controller
 
         $userId          = (int)($sphereUser['id'] ?? 0);
         $roleLevel       = (int)($sphereUser['role_level'] ?? 99);
-        $cchUser         = CchUser::select('id', 'division_id')->find($userId);
-        $userDivisionId  = $cchUser?->division_id ?? null;
+        $userDivisionId  = (int)($sphereUser['department_id'] ?? 0);
         $isDeptMatch     = $cchDivisionId !== null
-                           && $userDivisionId !== null
-                           && (int)$cchDivisionId === (int)$userDivisionId;
+                           && $userDivisionId !== 0
+                           && (int)$cchDivisionId === $userDivisionId;
 
-        // isMgrQc: Manager (role_level=5) dengan sphere_department_id=7 (QC)
-        $sphereDeptId = (int)($sphereUser['department_id'] ?? 0);
-        $isMgrQc      = $roleLevel === 5 && $sphereDeptId === self::QC_DEPT_ID;
-
-        // isOwnerAdmin: hanya creator (input_by) dengan role admin/superadmin
-        $isOwnerAdmin = in_array($roleLevel, [1, 2], true)
+        // isMgrQc is no longer strictly used for QC, but kept for compatibility or removed.
+        // We will remove it from ctx to avoid confusion.
+        
+        // isOwnerAdmin: hanya creator (input_by) dengan role supervisor/superadmin (1, 6)
+        $isOwnerAdmin = in_array($roleLevel, [1, 6], true)
                         && $userId !== 0
                         && $userId === (int)$cch->input_by;
 
-        return compact('importance', 'cchDivisionId', 'userId', 'roleLevel', 'isDeptMatch', 'isOwnerAdmin', 'isMgrQc');
+        return compact('importance', 'cchDivisionId', 'userId', 'roleLevel', 'isDeptMatch', 'isOwnerAdmin');
     }
 
     /**
@@ -83,16 +81,21 @@ class Block10ClosingController extends Controller
     {
         $ctx = $this->resolveContext($cch, $sphereUser);
 
-        // Superadmin and Manager
-        if (in_array($ctx['roleLevel'], [1, 5])) return null;
+        // Superadmin
+        if ($ctx['roleLevel'] === 1) return null;
 
         // Admin owner (fills form)
         if ($ctx['isOwnerAdmin']) return null;
 
-        // Rank A: Presdir/GM (4)
-        if ($ctx['importance'] === 'A') {
-            if ($ctx['roleLevel'] === 4) return null;
-            return ['success' => false, 'message' => 'Akses Close untuk CCH Rank A hanya untuk Presdir/GM.'];
+        // Rank A: Presdir/GM (2, 4)
+        if ($ctx['importance'] === 'A' && in_array($ctx['roleLevel'], [2, 4])) {
+            return null;
+        }
+
+        // Manager: hanya bisa melihat tab close jika departemennya sesuai atau request departemennya
+        // Catatan: logika ini untuk tombol/tab view.
+        if ($ctx['roleLevel'] === 5) {
+            return null; // Manager generally can view it if they can access the CCH
         }
 
         return ['success' => false, 'message' => 'Anda tidak memiliki akses ke tab Close.'];
@@ -111,14 +114,17 @@ class Block10ClosingController extends Controller
 
         // Rank A: only Presdir/GM
         if ($ctx['importance'] === 'A') {
-            if ($ctx['roleLevel'] === 4) return null;
+            if (in_array($ctx['roleLevel'], [2, 4])) return null;
             return ['success' => false, 'message' => 'Untuk CCH Rank A, hanya Presdir/GM yang dapat melakukan Close Application.'];
         }
 
-        // Non-A: hanya Manager
-        if ($ctx['roleLevel'] === 5) return null;
+        // Non-A: hanya Manager departemen pembuat tiket
+        if ($ctx['roleLevel'] === 5) {
+            if ($ctx['isDeptMatch']) return null;
+            return ['success' => false, 'message' => 'Hanya Manager dari departemen pembuat CCH yang dapat melakukan Close Application.'];
+        }
 
-        return ['success' => false, 'message' => 'Hanya Manager yang dapat melakukan Close Application untuk CCH ini.'];
+        return ['success' => false, 'message' => 'Hanya Manager dari departemen terkait yang dapat melakukan Close Application untuk CCH ini.'];
     }
 
     // ─── Endpoints ─────────────────────────────────────────────────────────────
@@ -316,8 +322,7 @@ class Block10ClosingController extends Controller
         AuditLogService::log($id, 'Block 10', 'CLOSE_APPLICATION', $oldStatus, 'closed', $sphereUser['id']);
 
         // Send email notification to creator
-        $closerUser = \App\Models\CchUser::select('full_name', 'username')->find($sphereUser['id']);
-        $closerName = $closerUser?->full_name ?? $closerUser?->username ?? 'Unknown';
+        $closerName = $sphereUser['name'] ?? $sphereUser['username'] ?? 'Unknown';
         CchNotificationService::notifyCchClosed($cch, $closerName);
 
         return response()->json([

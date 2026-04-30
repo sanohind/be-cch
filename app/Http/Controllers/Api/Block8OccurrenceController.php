@@ -41,24 +41,28 @@ class Block8OccurrenceController extends Controller
 
     private function isAdmin(int $roleLevel): bool
     {
-        return in_array($roleLevel, [1, 2], true);
+        // Level 1 = Superadmin, Level 6 = Supervisor (bisa menjadi owner CCH)
+        return in_array($roleLevel, [1, 6], true);
     }
 
     private function isManagerOrPresdirGm(int $roleLevel): bool
     {
-        return in_array($roleLevel, [1, 4, 5], true);
+        // Level 2 = Presdir, Level 4 = GM, Level 5 = Manager
+        return in_array($roleLevel, [1, 2, 4, 5], true);
     }
 
-    private function isEligiblePic(int $cchId, int $userId): bool
+    private function isEligiblePic(int $cchId, int $userId, ?int $userDeptId = null, int $roleLevel = 99): bool
     {
-        // Only admin-level users (role_level 1 or 2) whose division is in Block 5 can be PIC
-        $user = CchUser::select('id', 'division_id', 'sphere_role_level')->find($userId);
-        if (!$user || !$user->division_id) return false;
-        if (!in_array((int)$user->sphere_role_level, [1, 2], true)) return false;
+        // PIC harus memiliki departemen yang terdaftar di Block 5 requests
+        // Gunakan department_id dari sphere_user yang sudah divalidasi middleware
+        if (!$userDeptId) return false;
+
+        // PIC harus berperan sebagai Supervisor (6) atau Superadmin (1)
+        if (!in_array($roleLevel, [1, 6], true)) return false;
 
         return CchRequest::where('cch_id', $cchId)
             ->whereNotNull('division_id')
-            ->where('division_id', $user->division_id)
+            ->where('division_id', $userDeptId)
             ->exists();
     }
 
@@ -94,7 +98,8 @@ class Block8OccurrenceController extends Controller
         $isOwnerAdmin = $this->isAdmin($roleLevel) && $ownerId !== null && $ownerId === $userId;
         $isManager = $this->isManagerOrPresdirGm($roleLevel);
         // PIC: any role level whose division is listed in Block 5 requests
-        $isPic = !$isOwnerAdmin && $this->isEligiblePic((int)$id, $userId);
+        $userDeptId = (int)($sphereUser['department_id'] ?? 0);
+        $isPic = !$isOwnerAdmin && $this->isEligiblePic((int)$id, $userId, $userDeptId, $roleLevel);
 
         if (!$isOwnerAdmin && !$isManager && !$isPic) {
             return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
@@ -103,12 +108,12 @@ class Block8OccurrenceController extends Controller
         [$picUserId, $canViewAll] = $this->resolvePicUserId($cch, $sphereUser);
 
         // Admin owner & manager see all headers; PIC sees all headers as well
-        $headers = CchOccurrencePic::with(['picUser:id,full_name,username,division_id'])
+        $headers = CchOccurrencePic::with(['picUser:id,name,username,department_id'])
             ->where('cch_id', $id)
             ->orderByDesc('updated_at')
             ->get();
 
-        $record = CchOccurrencePic::with(['picUser:id,full_name,username,division_id', 'process', 'supplier', 'supplierProcess'])
+        $record = CchOccurrencePic::with(['picUser:id,name,username,department_id', 'process', 'supplier', 'supplierProcess'])
             ->where('cch_id', $id)
             ->where('pic_user_id', $picUserId)
             ->first();
@@ -148,7 +153,8 @@ class Block8OccurrenceController extends Controller
 
         $isOwnerAdmin = $this->isAdmin($roleLevel) && $ownerId !== null && $ownerId === $userId;
         $isManager = $this->isManagerOrPresdirGm($roleLevel);
-        $isPic = !$isOwnerAdmin && $this->isEligiblePic((int)$id, $userId);
+        $userDeptId = (int)($sphereUser['department_id'] ?? 0);
+        $isPic = !$isOwnerAdmin && $this->isEligiblePic((int)$id, $userId, $userDeptId, $roleLevel);
 
         if ($isManager) {
             return response()->json(['success' => false, 'message' => 'Role anda tidak memiliki akses untuk mengisi Block 8.'], 403);
@@ -276,7 +282,8 @@ class Block8OccurrenceController extends Controller
         $ownerId = $this->getOwnerId($cch);
         $isOwnerAdmin = $this->isAdmin($roleLevel) && $ownerId !== null && $ownerId === $userId;
         $isManager = $this->isManagerOrPresdirGm($roleLevel);
-        $isPic = !$isOwnerAdmin && $this->isEligiblePic((int)$id, $userId);
+        $userDeptId = (int)($sphereUser['department_id'] ?? 0);
+        $isPic = !$isOwnerAdmin && $this->isEligiblePic((int)$id, $userId, $userDeptId, $roleLevel);
 
         if ($isManager) return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
         if (!$isOwnerAdmin && !$isPic) return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
@@ -318,7 +325,8 @@ class Block8OccurrenceController extends Controller
         $ownerId = $this->getOwnerId($cch);
         $isOwnerAdmin = $this->isAdmin($roleLevel) && $ownerId !== null && $ownerId === $userId;
         $isManager = $this->isManagerOrPresdirGm($roleLevel);
-        $isPic = !$isOwnerAdmin && $this->isEligiblePic((int)$id, $userId);
+        $userDeptId = (int)($sphereUser['department_id'] ?? 0);
+        $isPic = !$isOwnerAdmin && $this->isEligiblePic((int)$id, $userId, $userDeptId, $roleLevel);
 
         if ($isManager) return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
         if (!$isOwnerAdmin && !$isPic) return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
@@ -354,7 +362,8 @@ class Block8OccurrenceController extends Controller
         $ownerId = $this->getOwnerId($cch);
         $isOwnerAdmin = $this->isAdmin($roleLevel) && $ownerId !== null && $ownerId === $userId;
         $isManager = $this->isManagerOrPresdirGm($roleLevel);
-        $isPic = !$isOwnerAdmin && $this->isEligiblePic((int)$id, $userId);
+        $userDeptId = (int)($sphereUser['department_id'] ?? 0);
+        $isPic = !$isOwnerAdmin && $this->isEligiblePic((int)$id, $userId, $userDeptId, $roleLevel);
 
         if ($isManager) return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
         if (!$isOwnerAdmin && !$isPic) return response()->json(['success' => false, 'message' => 'Forbidden'], 403);

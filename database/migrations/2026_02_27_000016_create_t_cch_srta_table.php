@@ -42,7 +42,6 @@ return new class extends Migration
             $table->timestamp('uploaded_at')->useCurrent();
 
             $table->foreign('cch_id')->references('cch_id')->on('t_cch')->cascadeOnDelete();
-            $table->foreign('uploaded_by')->references('id')->on('cch_users');
         });
     }
 

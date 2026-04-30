@@ -19,17 +19,20 @@ class CchCommentController extends Controller
         $roleLevel = (int)($sphereUser['role_level'] ?? 99);
         $userId = $sphereUser['id'] ?? null;
 
+        // Superadmin: lihat semua
         if ($roleLevel === 1) return true;
-        if (in_array($roleLevel, [4, 5], true)) return true;
 
+        // Presdir, GM, Manager: akses penuh untuk baca
+        if (in_array($roleLevel, [2, 4, 5], true)) return true;
+
+        // Pemilik CCH
         $ownerId = $cch->admin_in_charge ?: $cch->input_by;
         if ($ownerId == $userId) return true;
 
-        $cchUser = $userId ? CchUser::select('division_id')->find($userId) : null;
-        $userDivisionId = $cchUser->division_id ?? null;
+        // Supervisor/Staff: cek departemen dari sphereUser (tanpa query DB tambahan)
+        $userDivisionId = (int)($sphereUser['department_id'] ?? 0);
         if ($userDivisionId) {
             if ($cch->requests()->where('division_id', $userDivisionId)->exists()) return true;
-            if ($roleLevel === 5 && (int)$cch->division_id === (int)$userDivisionId) return true;
         }
         return false;
     }
@@ -44,21 +47,22 @@ class CchCommentController extends Controller
         }
         $roleLevel = (int)($sphereUser['role_level'] ?? 99);
         $userId = $sphereUser['id'] ?? null;
+
+        // Superadmin
         if ($roleLevel === 1) return true;
-        if (in_array($roleLevel, [4, 5], true)) return true;
+
+        // Presdir, GM, Manager: boleh komentar
+        if (in_array($roleLevel, [2, 4, 5], true)) return true;
 
         // Admin penerbit (yang menerbitkan CCH)
         if ($cch->input_by == $userId) return true;
 
-        $cchUser = $userId ? CchUser::select('division_id')->find($userId) : null;
-        $userDivisionId = $cchUser->division_id ?? null;
+        // Supervisor / Staff: gunakan department_id dari sphereUser
+        $userDivisionId = (int)($sphereUser['department_id'] ?? 0);
         if (!$userDivisionId) return false;
 
         // PIC department yang di-request di Block 5
         if ($cch->requests()->where('division_id', $userDivisionId)->exists()) return true;
-
-        // Manager department terkait (role Manager + divisi user = divisi CCH dari basic/t_cch)
-        if ($roleLevel === 5 && (int)$cch->division_id === (int)$userDivisionId) return true;
 
         return false;
     }
@@ -74,7 +78,7 @@ class CchCommentController extends Controller
         }
 
         $block = $request->query('block');
-        $query = CchComment::with(['createdBy:id,full_name,username'])
+        $query = CchComment::with(['createdBy:id,name,username'])
             ->where('cch_id', $id);
 
         if ($block !== null) {
@@ -155,8 +159,8 @@ class CchCommentController extends Controller
         }
 
         // Send email notification to all CCH participants
-        $commenter = CchUser::select('full_name', 'username')->find($sphereUser['id']);
-        $commenterName = $commenter?->full_name ?? $commenter?->username ?? 'Unknown';
+        $commenter = CchUser::select('name', 'username')->find($sphereUser['id']);
+        $commenterName = $commenter?->name ?? $commenter?->username ?? 'Unknown';
         CchNotificationService::notifyCommentAdded(
             $cch,
             $validated['subject'],
@@ -168,7 +172,7 @@ class CchCommentController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Comment added successfully',
-            'data' => $comment->load('createdBy:id,full_name,username'),
+            'data' => $comment->load('createdBy:id,name,username'),
         ], 201);
     }
 

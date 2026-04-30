@@ -13,14 +13,14 @@ class WorkflowService
 
     private static function isAdmin(int $roleLevel): bool
     {
-        // Existing convention: 1 = Superadmin, 2 = Admin
-        return in_array($roleLevel, [1, 2], true);
+        // Level 1 = Superadmin, Level 6 = Supervisor (pembuat CCH)
+        return in_array($roleLevel, [1, 6], true);
     }
 
     private static function isManagerOrPresdirGm(int $roleLevel): bool
     {
-        // Existing convention: 4 = Presdir/GM, 5 = Manager
-        return in_array($roleLevel, [1, 4, 5], true);
+        // Level 2 = Presdir, Level 4 = GM, Level 5 = Manager
+        return in_array($roleLevel, [1, 2, 4, 5], true);
     }
 
     private static function prevBlockStatusFor(Cch $cch, int $blockNumber): ?string
@@ -143,8 +143,8 @@ class WorkflowService
             try {
                 $name = $submitterName;
                 if (!$name && $userId) {
-                    $user = \App\Models\CchUser::select('full_name', 'username')->find($userId);
-                    $name = $user?->full_name ?? $user?->username ?? 'Admin';
+                    $user = \App\Models\CchUser::select('name', 'username')->find($userId);
+                    $name = $user?->name ?? $user?->username ?? 'Admin';
                 }
                 \App\Services\CchNotificationService::notifyBlockSubmitted($cch, $blockNumber, $name ?? 'Admin');
             } catch (\Throwable $e) {

@@ -47,7 +47,7 @@ class CchController extends Controller
             ])
             ->with([
                 // Creator
-                'inputBy:id,full_name,username',
+                'inputBy:id,name,username',
                 // Division (dari sphere)
                 'division:id,name,code',
                 // Basic — hanya kolom yang ditampilkan di list
@@ -79,36 +79,43 @@ class CchController extends Controller
         /**
          * ── Visibility per role ─────────────────────────────────────────────
          *
-         * Level 1 (Superadmin)  : lihat semua
-         * Level 2 (Admin)       : CCH yang dia buat (input_by) +
-         *                         CCH yang division-nya ada di Block 5 request
-         * Level 4 (Presdir/GM)  : hanya CCH rank A (importance_internal = 'A')
-         * Level 5 (Manager)     : hanya CCH yang t_cch.division_id = division user
+         * Level 1 (Super Admin) : lihat semua
+         * Level 2, 4 (Presdir, GM) : lihat semua Rank A
+         * Level 5 (Manager)     : lihat CCH yg pembuatnya se-departemen + CCH yg dept-nya di-request
+         * Level 6 (Supervisor)  : lihat CCH yg pembuatnya se-departemen + CCH yg dept-nya di-request
+         * Level 8 (Staff)       : lihat CCH yg pembuatnya se-departemen
          * Lainnya               : hanya CCH yang dia buat
          */
-        if ($roleLevel === 1 || $roleLevel === 5) {
-            // Superadmin & Manager: lihat semua
+        $userDivisionId = $sphereUser['department_id'] ?? null;
 
-        } elseif ($roleLevel === 2) {
-            // Admin: CCH yang dibuat sendiri ATAU divisinya ada di Block 5 Request
-            $userDivisionId = CchUser::select('division_id')->find($cchUserId)?->division_id;
+        // Nama database Sphere untuk fully-qualified cross-db query
+        $sphereDb = config('database.connections.sphere.database', env('DB_DATABASE_SPHERE', 'be_sphere'));
 
-            $query->where(function ($q) use ($cchUserId, $userDivisionId) {
-                $q->where('t_cch.input_by', $cchUserId);
+        if ($roleLevel === 1) {
+            // Superadmin: lihat semua
+        } elseif (in_array($roleLevel, [2, 4])) {
+            // Presdir & GM: hanya CCH rank A
+            $query->whereHas('basic', function ($q) {
+                $q->where('importance_internal', 'A');
+            });
+        } elseif (in_array($roleLevel, [5, 6, 8])) {
+            // Manager, Supervisor, Staff:
+            // Lihat CCH yang PEMBUATNYA (input_by) se-departemen
+            // Gunakan raw subquery karena users ada di DB berbeda (sphere)
+            $query->where(function ($q) use ($userDivisionId, $roleLevel, $sphereDb) {
+                // CCH yang pembuatnya berasal dari departemen yang sama
+                $q->whereRaw(
+                    "EXISTS (SELECT 1 FROM `{$sphereDb}`.`users` WHERE `{$sphereDb}`.`users`.`id` = `t_cch`.`input_by` AND `{$sphereDb}`.`users`.`department_id` = ?)",
+                    [$userDivisionId]
+                );
 
-                if ($userDivisionId) {
+                // Manager & Supervisor juga bisa melihat CCH yang dept mereka di-request
+                if ($userDivisionId && in_array($roleLevel, [5, 6])) {
                     $q->orWhereHas('requests', function ($r) use ($userDivisionId) {
                         $r->where('division_id', $userDivisionId);
                     });
                 }
             });
-
-        } elseif ($roleLevel === 4) {
-            // Presdir/GM: hanya CCH rank A
-            $query->whereHas('basic', function ($q) {
-                $q->where('importance_internal', 'A');
-            });
-
         } else {
             // Role lain: hanya CCH yang dia buat
             $query->where('t_cch.input_by', $cchUserId);
@@ -198,7 +205,7 @@ class CchController extends Controller
                 // Creator
                 'creator'          => $cch->inputBy ? [
                     'id'        => $cch->inputBy->id,
-                    'full_name' => $cch->inputBy->full_name,
+                    'full_name' => $cch->inputBy?->name,
                 ] : null,
             ];
         });
@@ -223,15 +230,13 @@ class CchController extends Controller
         $isDraft = $request->boolean('is_draft', false);
         $sphereUser = $request->attributes->get('sphere_user');
 
-        // Hanya Admin QC (role_level=2 DAN sphere_department_id=7) yang boleh membuat CCH
-        $roleLevel      = (int)($sphereUser['role_level'] ?? 99);
-        $departmentId   = (int)($sphereUser['department_id'] ?? 0);
-        $qcDepartmentId = 7;
+        // Semua Supervisor (Level 6) dan Superadmin (Level 1) boleh membuat CCH
+        $roleLevel = (int)($sphereUser['role_level'] ?? 99);
 
-        if ($roleLevel !== 1 && !($roleLevel === 2 && $departmentId === $qcDepartmentId)) {
+        if ($roleLevel !== 1 && $roleLevel !== 6) {
             return response()->json([
                 'success' => false,
-                'message' => 'Hanya Admin departemen QC yang dapat membuat CCH baru.',
+                'message' => 'Hanya Supervisor yang dapat membuat CCH baru.',
             ], 403);
         }
 
@@ -240,13 +245,12 @@ class CchController extends Controller
             'division_id' => 'required|exists:sphere.departments,id',
             'report_category' => 'required|in:Customer,Market,Internal',
             'customer_id' => 'nullable|string|exists:erp.business_partner,bp_code',
-            'plant_of_customer' => 'nullable|integer|exists:m_plants,plant_id',
+            'plant_of_customer' => 'nullable|string|max:255',
             'defect_class' => 'required|in:Quality trouble,Delivery trouble',
             'line_stop' => 'required|in:YES,NO',
             'count_by_customer' => 'required|in:YES,NO_Responsibility,NO_No_Responsibility,Undetermined,Not_Applicable',
             'month_of_counted' => 'nullable|date',
             'importance_internal' => 'required|in:A,B,C,M,Not_Applicable',
-            'importance_internal_class' => 'nullable|in:1,2,3,4',
             'importance_customer' => 'nullable|in:A,B,C,Undetermined,Not_Applicable',
             'toyota_rank' => 'nullable|in:Critical,Major Function,A,B,C,Undetermined',
             'attachments.*' => 'nullable|file|mimes:pdf,jpg,jpeg,png,xlsx,docx|max:10240' // Multiple file attachments
@@ -265,27 +269,16 @@ class CchController extends Controller
                 ], 422);
             }
 
-            // Business Rule: rank class required if internal is A or B
-            if (in_array($validated['importance_internal'] ?? '', ['A', 'B']) && empty($validated['importance_internal_class'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Importance internal class is required for rank A or B',
-                    'errors' => ['importance_internal_class' => ['Importance internal class wajib diisi untuk rank A atau B.']],
-                ], 422);
-            }
         }
 
         $year = date('Y');
         $cchNumber = Cch::generateCchNumber($year);
 
-        // Auto-sync user ke cch_users agar FK input_by valid
-        $cchUser = CchUser::syncFromSphere($sphereUser);
-
         // Create main record (draft initially)
         $cch = Cch::create([
             'cch_number' => $cchNumber,
             'status'     => 'draft',
-            'input_by'   => $cchUser->id, // gunakan cch_users.id bukan Sphere ID
+            'input_by'   => $sphereUser['id'], // gunakan Sphere ID
             'division_id'=> $request->division_id,
         ]);
 
@@ -308,7 +301,7 @@ class CchController extends Controller
                     'file_name' => $originalName,
                     'file_path' => $storedPath,
                     'file_size_kb' => round($file->getSize() / 1024, 2),
-                    'uploaded_by' => $cchUser->id  // gunakan cch_users.id
+                    'uploaded_by' => $sphereUser['id']  // gunakan sphere user id
                 ]);
             }
         }
@@ -318,13 +311,13 @@ class CchController extends Controller
             AAlertService::trigger($cch->cch_id, $cch->cch_number, $basic->subject);
         }
 
-        WorkflowService::updateBlockStatus($cch, 1, $isDraft, (int)($cchUser->id ?? 0) ?: null);
+        WorkflowService::updateBlockStatus($cch, 1, $isDraft, (int)($sphereUser['id'] ?? 0) ?: null);
 
         // Send email notification when block 1 is fully submitted (not draft)
         if (!$isDraft) {
             CchNotificationService::notifyCchCreated(
                 $cch,
-                $cchUser->full_name ?? $cchUser->username ?? 'Admin'
+                $sphereUser['name'] ?? $sphereUser['username'] ?? 'Admin'
             );
         }
 
@@ -376,17 +369,33 @@ class CchController extends Controller
         }
 
         // ── Visibility guard (same rules as index) ─────────────────────────
-        if ($roleLevel !== 1 && $roleLevel !== 2 && $roleLevel !== 5) {
-            $cchUser        = CchUser::select('id', 'division_id')->find($cchUserId);
-            $userDivisionId = (int) ($cchUser?->division_id ?? 0);
+        if ($roleLevel !== 1) {
+            $userDivisionId = (int) ($sphereUser['department_id'] ?? 0);
             $importance     = $cch->basic?->importance_internal ?? null;
-            $cchDivisionId  = (int) ($cch->division_id ?? 0);
+
+            // Cek apakah pembuat CCH berasal dari departemen yang sama
+            // Gunakan data Sphere yang sudah di-eager load
+            $cch->loadMissing('inputBy');
+            $creatorDeptId  = (int) ($cch->inputBy?->department_id ?? 0);
+            $isSameDept     = ($creatorDeptId > 0) && ($creatorDeptId === $userDivisionId);
+
+            // Cek apakah departemen user di-request di Block 5
+            $cch->loadMissing('requests');
+            $isRequestedDept = $cch->requests->contains('division_id', $userDivisionId);
 
             $allowed = false;
 
-            if ($roleLevel === 4) {
-                // Presdir/GM: hanya rank A
+            if (in_array($roleLevel, [2, 4])) {
+                // Presdir & GM: hanya rank A
                 $allowed = ($importance === 'A');
+
+            } elseif (in_array($roleLevel, [5, 6])) {
+                // Manager & Supervisor: dept pembuat sama ATAU dept di-request
+                $allowed = $isSameDept || $isRequestedDept;
+
+            } elseif ($roleLevel === 8) {
+                // Staff: hanya dept pembuat sama
+                $allowed = $isSameDept;
 
             } else {
                 // Lainnya: hanya creator

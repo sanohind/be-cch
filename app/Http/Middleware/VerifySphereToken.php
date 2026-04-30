@@ -68,10 +68,15 @@ class VerifySphereToken
             'department_name' => $deptName,
         ];
 
-        // Auto-sync user to CCH database, then override ID
-        $cchUser = \App\Models\CchUser::syncFromSphere($sphereArr);
-        $sphereArr['sphere_id'] = $sphereArr['id']; // Preserve Sphere ID
-        $sphereArr['id'] = $cchUser->id; // Override to strictly enforce CchUser local ID in all Controllers!
+        // Fetch user directly from sphere DB
+        $cchUser = \App\Models\CchUser::find($sphereArr['id']);
+        if ($cchUser) {
+            // Re-sync basic info just to be safe, but actually it's fetched directly so not needed.
+            // Role level might be fetched from role relation if needed in controllers
+            $sphereArr['role_level'] = $cchUser->role?->level ?? $sphereArr['role_level'];
+            $sphereArr['role'] = $cchUser->role?->slug ?? $sphereArr['role'];
+            $sphereArr['department_id'] = $cchUser->department_id ?? $sphereArr['department_id'];
+        }
 
         $request->attributes->set('sphere_user', $sphereArr);
         $request->attributes->set('cch_user', $cchUser);

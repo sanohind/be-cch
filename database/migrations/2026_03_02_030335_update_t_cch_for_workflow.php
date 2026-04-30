@@ -27,7 +27,6 @@ return new class extends Migration
             $table->enum('b9_status', ['empty', 'draft', 'submitted'])->default('empty')->after('b8_status');
             $table->enum('b10_status', ['empty', 'draft', 'submitted'])->default('empty')->after('b9_status');
 
-            $table->foreign('admin_in_charge')->references('id')->on('cch_users');
         });
 
         // Modify ENUM status via raw SQL safely

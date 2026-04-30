@@ -53,8 +53,8 @@ class Block2PrimaryController extends Controller
             'comment' => 'nullable|string',
             'part_number' => 'required|string|max:100',
             'part_name' => 'required|string|max:200',
-            'product_category_id' => 'required|exists:m_product_categories,category_id',
-            'product_family_id' => 'required|exists:m_product_families,family_id',
+            'division' => 'nullable|string|max:255',
+            'product_family' => 'nullable|string|max:255',
             'phase' => 'required|in:Trial,Trail_for_mass_production,Mass_production_first_3months,Mass_production_after_3months,Service_parts',
             'product_supply_form' => 'required|in:Inhouse_product,Knock_down_product,Pass_through_product,Not_subject',
             'estimation_occurrence_outflow' => 'nullable|string',
@@ -124,6 +124,18 @@ class Block2PrimaryController extends Controller
             'success' => true,
             'message' => 'Block 2 updated successfully',
             'data'    => $primary
+        ]);
+    }
+
+    public function getItems(): JsonResponse
+    {
+        $items = \App\Models\ItemData::select('item', 'desc_2', 'item_group', 'divisi')
+            ->whereIn('item_group', ['FGB', 'FGC', 'FGN', 'FGP'])
+            ->get();
+            
+        return response()->json([
+            'success' => true,
+            'data' => $items
         ]);
     }
 }

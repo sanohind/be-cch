@@ -18,7 +18,6 @@ return new class extends Migration
             $table->timestamp('asked_at')->useCurrent();
 
             $table->foreign('cch_id')->references('cch_id')->on('t_cch')->cascadeOnDelete();
-            $table->foreign('asked_by')->references('id')->on('cch_users');
         });
 
         // Q&A - Responses
@@ -30,7 +29,6 @@ return new class extends Migration
             $table->timestamp('responded_at')->useCurrent();
 
             $table->foreign('question_id')->references('question_id')->on('t_cch_questions')->cascadeOnDelete();
-            $table->foreign('responded_by')->references('id')->on('cch_users');
         });
     }
 

@@ -29,8 +29,10 @@ class AAlertService
         //     'sent_at' => now()
         // ]);
 
-        // Ambil semua QA / Division Manager untuk notifikasi
-        $qaManagers = CchUser::whereIn('cch_role', ['qa_manager', 'division_manager', 'admin'])
+        // Ambil QA / Division Manager untuk notifikasi
+        $qaManagers = CchUser::whereHas('role', function($q) {
+                                 $q->whereIn('level', [1, 2, 4, 5]); // Superadmin, Presdir, GM, Manager
+                             })
                              ->where('is_active', true)
                              ->get();
 

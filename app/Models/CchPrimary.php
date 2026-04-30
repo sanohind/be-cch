@@ -12,7 +12,7 @@ class CchPrimary extends Model
 
     protected $fillable = [
         'cch_id', 'failure_mode_id', 'defect_found_date', 'defect_found_date_end', 'defect_qty', 'comment',
-        'part_number', 'part_name', 'product_category_id', 'product_family_id',
+        'part_number', 'part_name', 'division', 'product_family',
         'phase', 'product_supply_form', 'estimation_occurrence_outflow',
         'possibility_spreading', 'spreading_detail', 'qa_director_comment', 'author_comment',
     ];

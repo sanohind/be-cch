@@ -20,7 +20,6 @@ return new class extends Migration
             $table->timestamp('changed_at')->useCurrent();
 
             $table->foreign('cch_id')->references('cch_id')->on('t_cch')->cascadeOnDelete();
-            $table->foreign('changed_by')->references('id')->on('cch_users');
         });
 
         // Notifications
@@ -35,7 +34,6 @@ return new class extends Migration
             $table->timestamp('created_at')->useCurrent();
 
             $table->foreign('cch_id')->references('cch_id')->on('t_cch')->cascadeOnDelete();
-            $table->foreign('sent_to')->references('id')->on('cch_users')->nullOnDelete();
         });
     }
 

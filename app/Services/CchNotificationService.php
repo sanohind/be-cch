@@ -48,7 +48,7 @@ class CchNotificationService
             $subject = $cch->basic?->subject ?? $cch->cch_number;
             $url     = self::cchUrl($cch->cch_id, 1);
 
-            $users = self::getManagerUsers();
+            $users = self::getManagerUsers($cch->division_id);
 
             // Rank A → tambahkan Presdir/GM
             if ($rank === 'A') {
@@ -71,6 +71,7 @@ class CchNotificationService
         }
     }
 
+
     // ───────────────────────────────────────────────────────────────────────
 
     /**
@@ -86,7 +87,9 @@ class CchNotificationService
             $blockName = self::$blockNames[$blockNumber] ?? "Block {$blockNumber}";
             $url      = self::cchUrl($cch->cch_id, $blockNumber);
 
-            $users = self::getManagerUsers();
+            $requestedDivisionIds = CchRequest::where('cch_id', $cch->cch_id)->pluck('division_id')->toArray();
+
+            $users = self::getManagerUsers($cch->division_id, $requestedDivisionIds);
 
             if ($rank === 'A') {
                 $users = array_merge($users, self::getPresdirGmUsers());
@@ -94,7 +97,7 @@ class CchNotificationService
 
             // Tambahkan notifikasi untuk admin PIC department mulai dari blok 5 disubmit
             if ($blockNumber >= 5) {
-                $users = array_merge($users, self::getRequestedAdminPics($cch->cch_id));
+                $users = array_merge($users, self::getRequestedAdminPics($requestedDivisionIds));
             }
 
             $users = self::uniqueUsers($users);
@@ -217,7 +220,8 @@ class CchNotificationService
             }
 
             // Manager
-            $users = array_merge($users, self::getManagerUsers());
+            $requestedDivisionIds = CchRequest::where('cch_id', $cch->cch_id)->pluck('division_id')->toArray();
+            $users = array_merge($users, self::getManagerUsers($cch->division_id, $requestedDivisionIds));
 
             // Jika Rank A, tambahkan Presdir/GM
             if ($rank === 'A') {
@@ -225,7 +229,7 @@ class CchNotificationService
             }
 
             // Admin PIC department dari Block 5
-            $users = array_merge($users, self::getRequestedAdminPics($cch->cch_id));
+            $users = array_merge($users, self::getRequestedAdminPics($requestedDivisionIds));
 
             $users = self::uniqueUsers($users);
             $rankLabel = $rank === 'A' ? '[Rank A] ' : '';
@@ -248,6 +252,48 @@ class CchNotificationService
         }
     }
 
+    // ───────────────────────────────────────────────────────────────────────
+
+    /**
+     * Fired by cron job for Due Date Reminders (Block Request).
+     * @param string $statusLabel "H-3", "Hari-H", or "Overdue"
+     */
+    public static function notifyDueDateReminder(Cch $cch, CchRequest $request, string $statusLabel, int $daysDiff): void
+    {
+        try {
+            $cch->loadMissing('basic');
+            $subject = $cch->basic?->subject ?? $cch->cch_number;
+            $url     = self::cchUrl($cch->cch_id, 8); // Arahkan ke Block 8 (Occurrence)
+
+            // Ambil PIC dari department/divisi request ini
+            $users = [];
+            if ($request->division_id) {
+                $users = self::getRequestedAdminPics([$request->division_id]);
+            }
+            if (empty($users)) {
+                return; // Tidak ada PIC untuk di-email
+            }
+
+            $users = self::uniqueUsers($users);
+
+            $message = "[{$statusLabel}] Reminder CCH {$subject} - Jatuh tempo pada {$request->due_date}";
+
+            foreach ($users as $user) {
+                self::logToDb($cch->cch_id, 'A_Alert', $user['id'], $message);
+                Mail::to($user['email'])->queue(new \App\Mail\CchDueDateReminderMail(
+                    $cch->cch_number, 
+                    $subject, 
+                    $request->due_date, 
+                    $statusLabel, 
+                    $daysDiff, 
+                    $url
+                ));
+            }
+        } catch (\Throwable $e) {
+            Log::error('[CchNotification] notifyDueDateReminder failed: ' . $e->getMessage());
+        }
+    }
+
     // ─── Internal helpers ───────────────────────────────────────────────────
 
     private static function logToDb(int $cchId, string $type, int $userId, string $message): void
@@ -266,9 +312,17 @@ class CchNotificationService
         }
     }
 
-    private static function getManagerUsers(): array
+    private static function getManagerUsers(?int $divisionId = null, array $requestedDivisionIds = []): array
     {
-        return CchUser::where('sphere_role_level', 5)
+        $divIds = array_unique(array_filter(array_merge([$divisionId], $requestedDivisionIds)));
+        if (empty($divIds)) {
+            return [];
+        }
+
+        return CchUser::whereHas('role', function ($q) {
+                $q->where('level', 5);
+            })
+            ->whereIn('department_id', $divIds)
             ->where('is_active', true)
             ->whereNotNull('email')
             ->where('email', '!=', '')
@@ -278,7 +332,9 @@ class CchNotificationService
 
     private static function getPresdirGmUsers(): array
     {
-        return CchUser::where('sphere_role_level', 4)
+        return CchUser::whereHas('role', function ($q) {
+                $q->whereIn('level', [2, 4]);
+            })
             ->where('is_active', true)
             ->whereNotNull('email')
             ->where('email', '!=', '')
@@ -286,15 +342,16 @@ class CchNotificationService
             ->toArray();
     }
 
-    private static function getRequestedAdminPics(int $cchId): array
+    private static function getRequestedAdminPics(array $divisionIds): array
     {
-        $divisionIds = CchRequest::where('cch_id', $cchId)->pluck('division_id')->toArray();
         if (empty($divisionIds)) {
             return [];
         }
 
-        return CchUser::where('sphere_role_level', 2)
-            ->whereIn('sphere_department_id', $divisionIds)
+        return CchUser::whereHas('role', function ($q) {
+                $q->where('level', 6); // Supervisor
+            })
+            ->whereIn('department_id', $divisionIds)
             ->where('is_active', true)
             ->whereNotNull('email')
             ->where('email', '!=', '')
